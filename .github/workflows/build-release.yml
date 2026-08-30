@@ -69,6 +69,26 @@ jobs:
           echo "----- release notes -----"
           cat release_notes.md
 
+      # 若同名 tag 的 Release 已存在（重发场景），先清空其历史附件
+      - name: Remove stale release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RELEASE_ID=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.ref_name }}" | jq -r '.id // empty')
+          if [ -n "$RELEASE_ID" ]; then
+            echo "找到已有 Release #$RELEASE_ID，清理旧附件"
+            curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/releases/$RELEASE_ID/assets" \
+              | jq -r '.[].id' | while read -r asset_id; do
+                curl -sf -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+                  "https://api.github.com/repos/${{ github.repository }}/releases/assets/$asset_id"
+                echo "已删除附件 #$asset_id"
+              done
+          else
+            echo "无同名 Release，跳过清理"
+          fi
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
