@@ -33,7 +33,7 @@ jobs:
         run: |
           if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
             echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/keystore.jks"
-            echo "keystore.jks restored (${SIGNING_KEYSTORE_BASE64} bytes -> file)"
+            echo "keystore.jks restored"
           else
             echo "未配置 secret SIGNING_KEYSTORE_BASE64，release APK 将不签名"
           fi
@@ -75,34 +75,16 @@ jobs:
           echo "----- release notes -----"
           cat release_notes.md
 
-      # 删除历史遗留版本（包名变更前发布的旧版）
-      - name: Delete legacy releases and tags
-        env:
-          GH_TOKEN: ${{ github.token }}
-          LEGACY_TAGS: "v1.1.0 v1.1.1"
-        run: |
-          for TAG in $LEGACY_TAGS; do
-            RID=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" \
-              | jq -r "[.[] | select(.tag_name == \"$TAG\")][0].id // empty")
-            if [ -n "$RID" ]; then
-              code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
-                -H "Authorization: Bearer $GH_TOKEN" \
-                "https://api.github.com/repos/${{ github.repository }}/releases/$RID")
-              echo "删除旧 Release $TAG (#$RID) -> HTTP $code"
-            fi
-            curl -sf -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
-              "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG" \
-              && echo "删除旧 tag $TAG" || echo "tag $TAG 不存在或删除失败"
-          done
-
-      # 重发场景：删除已存在的同名 Release（连同旧附件），稍后全新创建以保证摘要最新
+      # 重发场景：删除已存在的同名 Release（连同旧附件），稍后全新创建，
+      # 以确保发布摘要与附件都是最新内容
       - name: Delete stale release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           get_rid() {
-            curl -sf -H "Authorization: Bearer $GH_TOKEN"               "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100"               | jq -r "[.[] | select(.tag_name == \"${{ github.ref_name }}\")][0].id // empty"
+            curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" \
+              | jq -r "[.[] | select(.tag_name == \"${{ github.ref_name }}\")][0].id // empty"
           }
           RID=""
           for i in 1 2 3; do
@@ -112,15 +94,17 @@ jobs:
             sleep 5
           done
           if [ -z "$RID" ]; then
-            echo "无同名 Release，跳过"
+            echo "无同名 Release，跳过删除"
             exit 0
           fi
           echo "删除已有 Release #$RID"
-          code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE             -H "Authorization: Bearer $GH_TOKEN"             "https://api.github.com/repos/${{ github.repository }}/releases/$RID")
+          code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/$RID")
           echo "HTTP $code"
           [ "$code" = "204" ] || { echo "删除失败"; exit 1; }
 
-      - name: Create Release      - name: Create Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
