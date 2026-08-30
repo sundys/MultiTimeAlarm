@@ -17,7 +17,7 @@ class Converters {
 
 @Database(
     entities = [AlarmTaskEntity::class, AlarmTimeEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -49,6 +49,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v4 -> v5：任务增加备注字段 */
+        private val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE alarm_tasks ADD COLUMN note TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         /** v3 -> v4：修复在 v3 前创建的小憩条目未标记 isNap 的问题 */
         private val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -63,7 +70,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "multitime_alarm.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }

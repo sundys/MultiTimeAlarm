@@ -11,6 +11,7 @@ import com.example.multitimealarm.data.TaskWithTimes
 import com.example.multitimealarm.util.TimeUtils
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -18,7 +19,15 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = AlarmRepository(application)
 
+    /** 闹钟列表：按下一次响铃时间升序（多时间点取最早的一个，无未来触发的排最后） */
     val tasks: StateFlow<List<TaskWithTimes>> = repository.observeAllTasks()
+        .map { list ->
+            list.sortedBy { item ->
+                item.times
+                    .mapNotNull { time -> TimeUtils.nextTriggerAt(item.task, time) }
+                    .minOrNull() ?: Long.MAX_VALUE
+            }
+        }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     suspend fun loadTask(taskId: Long): TaskWithTimes? =

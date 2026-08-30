@@ -265,6 +265,7 @@ private fun AlarmApp(
                         onScrollingChanged = { napListScrolling = it },
                         onDeleteTask = viewModel::deleteTask,
                         onEditTask = { editingTaskId.value = it },
+                        onToggleTask = viewModel::setTaskEnabled,
                     )
                 }
             }

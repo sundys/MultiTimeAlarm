@@ -183,7 +183,7 @@ private fun RingScreen(
                     .fillMaxWidth()
                     .height(56.dp),
             ) {
-                Text("贪睡 $snoozeMinutes 分钟（$snoozeHint）", fontSize = 18.sp, color = Color.White)
+                Text("再等 $snoozeMinutes 分钟", fontSize = 18.sp, color = Color.White)
             }
         }
     }

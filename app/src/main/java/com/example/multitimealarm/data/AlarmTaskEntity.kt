@@ -33,6 +33,8 @@ data class AlarmTaskEntity(
     val snoozeMaxCount: Int = 3,
     /** 小憩条目：首页归入"小憩"Tab 展示 */
     val isNap: Boolean = false,
+    /** 闹钟备注 */
+    val note: String = "",
     val createdAt: Long = System.currentTimeMillis(),
 ) {
     companion object {

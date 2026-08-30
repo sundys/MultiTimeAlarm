@@ -1,5 +1,7 @@
 package com.example.multitimealarm.ui.list
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -13,16 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -62,6 +59,8 @@ fun AlarmListPage(
         onScrollingChanged(listState.isScrollInProgress)
     }
 
+    var deleteTarget by remember { mutableStateOf<TaskWithTimes?>(null) }
+
     if (tasks.isEmpty()) {
         EmptyHint("还没有闹钟\n点击右下角 + 新建闹钟，一个闹钟可设置多个提醒时间")
     } else {
@@ -75,12 +74,22 @@ fun AlarmListPage(
                 TaskCard(
                     item = item,
                     onToggleTask = onToggleTask,
-                    onToggleTime = onToggleTime,
-                    onDeleteTask = onDeleteTask,
                     onEdit = { onEditTask(item.task.id) },
+                    onLongPress = { deleteTarget = item },
                 )
             }
         }
+    }
+
+    deleteTarget?.let { target ->
+        DeleteConfirmDialog(
+            name = target.task.name,
+            onConfirm = {
+                onDeleteTask(target.task.id)
+                deleteTarget = null
+            },
+            onDismiss = { deleteTarget = null },
+        )
     }
 }
 
@@ -91,11 +100,14 @@ fun NapListPage(
     onScrollingChanged: (Boolean) -> Unit,
     onDeleteTask: (Long) -> Unit,
     onEditTask: (Long) -> Unit,
+    onToggleTask: (Long, Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
     LaunchedEffect(listState.isScrollInProgress) {
         onScrollingChanged(listState.isScrollInProgress)
     }
+
+    var deleteTarget by remember { mutableStateOf<TaskWithTimes?>(null) }
 
     if (naps.isEmpty()) {
         EmptyHint("还没有小憩\n点击右下角 + 定时 N 分钟后响铃")
@@ -109,14 +121,23 @@ fun NapListPage(
             items(naps, key = { it.task.id }) { item ->
                 TaskCard(
                     item = item,
-                    onToggleTask = { id, checked -> /* 小憩无总开关需求，占位 */ },
-                    onToggleTime = { _, _ -> },
-                    onDeleteTask = onDeleteTask,
+                    onToggleTask = onToggleTask,
                     onEdit = { onEditTask(item.task.id) },
-                    showToggles = false,
+                    onLongPress = { deleteTarget = item },
                 )
             }
         }
+    }
+
+    deleteTarget?.let { target ->
+        DeleteConfirmDialog(
+            name = target.task.name,
+            onConfirm = {
+                onDeleteTask(target.task.id)
+                deleteTarget = null
+            },
+            onDismiss = { deleteTarget = null },
+        )
     }
 }
 
@@ -136,119 +157,90 @@ private fun EmptyHint(text: String) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** 闹钟卡片：两行紧凑样式。点击编辑，长按删除，右侧总开关 */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TaskCard(
     item: TaskWithTimes,
     onToggleTask: (Long, Boolean) -> Unit,
-    onToggleTime: (Long, Boolean) -> Unit,
-    onDeleteTask: (Long) -> Unit,
     onEdit: () -> Unit,
-    showToggles: Boolean = true,
+    onLongPress: () -> Unit,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        onClick = onEdit,
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onEdit, onLongClick = onLongPress),
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(item.task.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(2.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                // 第一行：闹钟名称
+                Text(item.task.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                // 第二行：下次响铃时间  类型  N个时间点
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val next = AlarmViewModel.nextAlarmText(item)
                     Text(
-                        text = typeSummary(item),
+                        text = next ?: "已停止",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = if (next != null) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = typeText(item),
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = "${item.times.size}个时间点",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                if (showToggles) {
-                    Switch(
-                        checked = item.task.enabled,
-                        onCheckedChange = { onToggleTask(item.task.id, it) },
-                    )
-                    IconButton(onClick = { onDeleteTask(item.task.id) }) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除")
-                    }
-                } else {
-                    IconButton(onClick = { onDeleteTask(item.task.id) }) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除")
-                    }
-                }
             }
-            Spacer(Modifier.height(8.dp))
-            item.times
-                .sortedWith(compareBy({ it.hour }, { it.minute }, { it.second }))
-                .forEach { time ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = formatTime(time.hour, time.minute, time.second),
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (showToggles) {
-                            Switch(
-                                checked = time.enabled,
-                                onCheckedChange = { onToggleTime(time.id, it) },
-                                enabled = item.task.enabled,
-                            )
-                        }
-                    }
-                }
-            val next = AlarmViewModel.nextAlarmText(item)
-            if (next != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "下次响铃：$next",
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
+            Spacer(Modifier.width(8.dp))
+            Switch(
+                checked = item.task.enabled,
+                onCheckedChange = { onToggleTask(item.task.id, it) },
+            )
         }
     }
 }
 
-fun formatTime(hour: Int, minute: Int, second: Int): String =
-    if (second == 0) String.format("%02d:%02d", hour, minute)
-    else String.format("%02d:%02d:%02d", hour, minute, second)
-
-private fun typeSummary(item: TaskWithTimes): String {
-    val count = "${item.times.size} 个时间点"
-    return when (item.task.type) {
-        TaskType.DAILY -> "每天 · $count"
-        TaskType.WEEKLY -> {
+private fun typeText(item: TaskWithTimes): String = when (item.task.type) {
+    TaskType.DAILY -> "每天"
+    TaskType.WEEKLY -> when (item.task.weekdaysMask) {
+        AlarmTaskEntity.MASK_EVERY_DAY -> "每天"
+        AlarmTaskEntity.MASK_WEEKDAYS -> "工作日"
+        AlarmTaskEntity.MASK_WEEKEND -> "周末"
+        else -> {
             val labels = listOf("一", "二", "三", "四", "五", "六", "日")
             val days = (0..6).filter { item.task.weekdaysMask and (1 shl it) != 0 }
-                .joinToString("、") { labels[it] }
-            val summary = when (item.task.weekdaysMask) {
-                AlarmTaskEntity.MASK_EVERY_DAY -> "每天"
-                AlarmTaskEntity.MASK_WEEKDAYS -> "工作日"
-                AlarmTaskEntity.MASK_WEEKEND -> "周末"
-                else -> if (days.isEmpty()) "未选星期" else "周$days"
-            }
-            "$summary · $count"
+                .joinToString("") { labels[it] }
+            if (days.isEmpty()) "未选星期" else "周$days"
         }
-        TaskType.MONTHLY -> "每月 ${item.task.monthDay} 日 · $count"
-        TaskType.INTERVAL -> {
-            val total = item.task.intervalMinutes
-            val text = when {
-                total % 60L == 0L && total >= 60L -> "每 ${total / 60} 小时"
-                total < 60L -> "每 $total 分钟"
-                else -> "每 ${total / 60} 小时 ${total % 60} 分钟"
-            }
-            "$text · $count"
+    }
+    TaskType.MONTHLY -> "每月${item.task.monthDay}日"
+    TaskType.INTERVAL -> {
+        val total = item.task.intervalMinutes
+        when {
+            total >= 60L && total % 60L == 0L -> "每${total / 60}小时"
+            total < 60L -> "每${total}分钟"
+            else -> "每${total / 60}时${total % 60}分"
         }
-        TaskType.ONCE -> {
-            val dateText = item.task.dateEpochDay
-                ?.let { LocalDate.ofEpochDay(it).format(DateTimeFormatter.ofPattern("MM月dd日")) }
-                ?: "未设日期"
-            "$dateText · $count"
-        }
+    }
+    TaskType.ONCE -> {
+        val dateText = item.task.dateEpochDay
+            ?.let { LocalDate.ofEpochDay(it).format(DateTimeFormatter.ofPattern("M月d日")) }
+            ?: "未设日期"
+        "仅一次 $dateText"
     }
 }
 
@@ -307,6 +299,26 @@ fun NapDialog(
                 val minutes = (selected ?: customText.toIntOrNull()) ?: return@TextButton
                 if (minutes > 0) onConfirm(minutes)
             }) { Text("开始小憩") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        },
+    )
+}
+
+/** 长按删除确认对话框 */
+@Composable
+private fun DeleteConfirmDialog(
+    name: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("删除闹钟") },
+        text = { Text("确定删除「$name」吗？其所有提醒时间将一并移除。") },
+        confirmButton = {
+            TextButton(onClick = onConfirm) { Text("删除", color = MaterialTheme.colorScheme.error) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("取消") }

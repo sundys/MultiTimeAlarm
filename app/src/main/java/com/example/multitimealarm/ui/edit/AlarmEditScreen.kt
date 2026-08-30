@@ -1,5 +1,6 @@
 package com.example.multitimealarm.ui.edit
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -17,7 +18,6 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.DatePicker
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -29,7 +29,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,7 +46,6 @@ import com.example.multitimealarm.data.AlarmTimeEntity
 import com.example.multitimealarm.data.TaskType
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.util.concurrent.TimeUnit
 
 /** 编辑页内部的时间行（id=0 表示尚未入库的新增时间点） */
 private data class TimeRow(val id: Long, val hour: Int, val minute: Int, val second: Int, val enabled: Boolean)
@@ -74,6 +72,7 @@ fun AlarmEditScreen(
     var createdAt by remember { mutableStateOf(0L) }
     var snoozeMinutesText by remember { mutableStateOf("5") }
     var snoozeMaxCountText by remember { mutableStateOf("3") }
+    var note by remember { mutableStateOf("") }
     val times = remember { mutableStateListOf<TimeRow>() }
     val removedIds = remember { mutableStateListOf<Long>() }
     var isLoaded by remember { mutableStateOf(taskId == null) }
@@ -94,6 +93,7 @@ fun AlarmEditScreen(
                 createdAt = loaded.task.createdAt
                 snoozeMinutesText = loaded.task.snoozeMinutes.toString()
                 snoozeMaxCountText = loaded.task.snoozeMaxCount.toString()
+                note = loaded.task.note
                 times.clear()
                 times.addAll(loaded.times.map { TimeRow(it.id, it.hour, it.minute, it.second, it.enabled) })
                 isLoaded = true
@@ -102,6 +102,7 @@ fun AlarmEditScreen(
     }
 
     var showTimePicker by remember { mutableStateOf(false) }
+    var editingTimeIndex by remember { mutableStateOf<Int?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
@@ -132,8 +133,16 @@ fun AlarmEditScreen(
                 singleLine = true,
             )
 
-            // 提醒类型
-            Text("提醒类型", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            // 提醒类型 + 振动（同一行，振动靠右）
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("提醒类型", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                Text("振动", fontSize = 14.sp)
+                Spacer(Modifier.width(8.dp))
+                Switch(checked = vibrate, onCheckedChange = { vibrate = it })
+            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     selected = type == TaskType.DAILY,
@@ -289,7 +298,9 @@ fun AlarmEditScreen(
                         else String.format("%02d:%02d:%02d", row.hour, row.minute, row.second),
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f),
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { editingTimeIndex = index },
                     )
                     Switch(
                         checked = row.enabled,
@@ -306,7 +317,9 @@ fun AlarmEditScreen(
             }
             Button(
                 onClick = { showTimePicker = true },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth(0.6f)
+                    .align(Alignment.CenterHorizontally),
             ) {
                 Icon(Icons.Default.Add, contentDescription = null)
                 Spacer(Modifier.width(4.dp))
@@ -323,26 +336,34 @@ fun AlarmEditScreen(
                 OutlinedTextField(
                     value = snoozeMinutesText,
                     onValueChange = { snoozeMinutesText = it.filter(Char::isDigit).take(3) },
-                    label = { Text("贪睡间隔（分钟）") },
-                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("间隔（分钟）", fontSize = 13.sp) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(56.dp),
                     singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
                 )
                 OutlinedTextField(
                     value = snoozeMaxCountText,
                     onValueChange = { snoozeMaxCountText = it.filter(Char::isDigit).take(2) },
-                    label = { Text("次数上限（0=不限）") },
-                    modifier = Modifier.weight(1f),
+                    placeholder = { Text("次数上限（0=不限）", fontSize = 13.sp) },
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(56.dp),
                     singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
                 )
             }
 
-            Row(
+            // 备注
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it },
+                label = { Text("备注（可选）") },
+                placeholder = { Text("例如：饭后服用") },
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("振动", modifier = Modifier.weight(1f))
-                Switch(checked = vibrate, onCheckedChange = { vibrate = it })
-            }
+                singleLine = true,
+            )
 
             Spacer(Modifier.height(8.dp))
             Button(
@@ -376,6 +397,7 @@ fun AlarmEditScreen(
                         vibrate = vibrate,
                         snoozeMinutes = snoozeMinutes,
                         snoozeMaxCount = snoozeMaxCount,
+                        note = note,
                         createdAt = if (createdAt != 0L) createdAt else System.currentTimeMillis(),
                     )
                     val timeEntities = times.map {
@@ -389,8 +411,9 @@ fun AlarmEditScreen(
                     onBack()
                 },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
+                    .fillMaxWidth(0.6f)
+                    .height(48.dp)
+                    .align(Alignment.CenterHorizontally),
                 enabled = isLoaded,
             ) {
                 Text("保存", fontSize = 16.sp)
@@ -400,13 +423,24 @@ fun AlarmEditScreen(
     }
 
     // 时/分/秒三列数字滚动选择器
-    if (showTimePicker) {
-        var pickedHour by remember { mutableStateOf(times.lastOrNull()?.hour ?: 8) }
-        var pickedMinute by remember { mutableStateOf(times.lastOrNull()?.minute ?: 0) }
-        var pickedSecond by remember { mutableStateOf(times.lastOrNull()?.second ?: 0) }
+    if (showTimePicker || editingTimeIndex != null) {
+        val editingRow = editingTimeIndex?.let { times.getOrNull(it) }
+        // 修改模式默认该行当前值，新增模式默认当前时间
+        val now = remember(editingTimeIndex) { java.time.LocalTime.now() }
+        var pickedHour by remember { mutableStateOf(editingRow?.hour ?: now.hour) }
+        var pickedMinute by remember { mutableStateOf(editingRow?.minute ?: now.minute) }
+        var pickedSecond by remember { mutableStateOf(editingRow?.second ?: 0) }
         AlertDialog(
             onDismissRequest = { showTimePicker = false },
-            title = { Text(if (type == TaskType.INTERVAL) "选择起始时间" else "选择提醒时间") },
+            title = {
+                Text(
+                    when {
+                        editingTimeIndex != null -> "修改提醒时间"
+                        type == TaskType.INTERVAL -> "选择起始时间"
+                        else -> "选择提醒时间"
+                    }
+                )
+            },
             text = {
                 Row(
                     horizontalArrangement = Arrangement.Center,
@@ -417,6 +451,7 @@ fun AlarmEditScreen(
                             value = pickedHour, count = 24,
                             onValueChange = { pickedHour = it },
                             modifier = Modifier.width(72.dp),
+                            circular = true,
                         )
                         Text("时", fontSize = 13.sp)
                     }
@@ -426,6 +461,7 @@ fun AlarmEditScreen(
                             value = pickedMinute, count = 60,
                             onValueChange = { pickedMinute = it },
                             modifier = Modifier.width(72.dp),
+                            circular = true,
                         )
                         Text("分", fontSize = 13.sp)
                     }
@@ -435,6 +471,7 @@ fun AlarmEditScreen(
                             value = pickedSecond, count = 60,
                             onValueChange = { pickedSecond = it },
                             modifier = Modifier.width(72.dp),
+                            circular = true,
                         )
                         Text("秒", fontSize = 13.sp)
                     }
@@ -442,30 +479,99 @@ fun AlarmEditScreen(
             },
             confirmButton = {
                 TextButton(onClick = {
-                    times.add(TimeRow(0L, pickedHour, pickedMinute, pickedSecond, enabled = true))
+                    val editIdx = editingTimeIndex
+                    if (editIdx != null && editIdx < times.size) {
+                        times[editIdx] = times[editIdx].copy(hour = pickedHour, minute = pickedMinute, second = pickedSecond)
+                    } else {
+                        times.add(TimeRow(0L, pickedHour, pickedMinute, pickedSecond, enabled = true))
+                    }
                     errorText = null
                     showTimePicker = false
-                }) { Text("添加") }
+                    editingTimeIndex = null
+                }) { Text(if (editingTimeIndex != null) "确定" else "添加") }
             },
             dismissButton = {
-                TextButton(onClick = { showTimePicker = false }) { Text("取消") }
+                TextButton(onClick = {
+                    showTimePicker = false
+                    editingTimeIndex = null
+                }) { Text("取消") }
             },
         )
     }
 
+    // 年/月/日三列滚动选择器（紧凑小窗）
     if (showDatePicker) {
-        val pickerState = rememberDatePickerState(
-            initialSelectedDateMillis = dateEpochDay?.let { it * TimeUnit.DAYS.toMillis(1) },
-        )
+        val today = remember { LocalDate.now() }
+        val yearBase = 2025
+        val yearCount = 2099 - yearBase + 1
+        var pickedYearOffset by remember { mutableStateOf(today.year - yearBase) }
+        var pickedMonth by remember { mutableStateOf(today.monthValue) }
+        var pickedDay by remember {
+            mutableStateOf(dateEpochDay?.let { LocalDate.ofEpochDay(it).dayOfMonth } ?: today.dayOfMonth)
+        }
+        // 编辑已有任务时定位到已设日期
+        LaunchedEffect(Unit) {
+            dateEpochDay?.let {
+                val d = LocalDate.ofEpochDay(it)
+                if (d.year in yearBase..(yearBase + yearCount - 1)) pickedYearOffset = d.year - yearBase
+                pickedMonth = d.monthValue
+                pickedDay = d.dayOfMonth
+            }
+        }
+        val monthLen = remember(pickedYearOffset, pickedMonth) {
+            java.time.YearMonth.of(yearBase + pickedYearOffset, pickedMonth).lengthOfMonth()
+        }
+        // 月份/年份变化后收拢超界日期
+        LaunchedEffect(pickedYearOffset, pickedMonth, monthLen) {
+            if (pickedDay > monthLen) pickedDay = monthLen
+        }
+
         AlertDialog(
             onDismissRequest = { showDatePicker = false },
             title = { Text("选择提醒日期") },
-            text = { DatePicker(state = pickerState) },
+            text = {
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        NumberPickerColumn(
+                            value = pickedYearOffset, count = yearCount,
+                            onValueChange = { pickedYearOffset = it },
+                            modifier = Modifier.width(76.dp),
+                            label = { String.format("%04d", yearBase + it) },
+                            circular = true,
+                        )
+                        Text("年", fontSize = 13.sp)
+                    }
+                    Text("  ", fontSize = 20.sp)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        NumberPickerColumn(
+                            value = pickedMonth - 1, count = 12,
+                            onValueChange = { pickedMonth = it + 1 },
+                            modifier = Modifier.width(64.dp),
+                            label = { String.format("%02d", it + 1) },
+                            circular = true,
+                        )
+                        Text("月", fontSize = 13.sp)
+                    }
+                    Text("  ", fontSize = 20.sp)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        NumberPickerColumn(
+                            value = pickedDay - 1, count = monthLen,
+                            onValueChange = { pickedDay = it + 1 },
+                            modifier = Modifier.width(64.dp),
+                            label = { String.format("%02d", it + 1) },
+                            circular = true,
+                        )
+                        Text("日", fontSize = 13.sp)
+                    }
+                }
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    pickerState.selectedDateMillis?.let {
-                        dateEpochDay = it / TimeUnit.DAYS.toMillis(1)
-                    }
+                    val day = pickedDay.coerceIn(1, monthLen)
+                    dateEpochDay = LocalDate.of(yearBase + pickedYearOffset, pickedMonth, day).toEpochDay()
                     showDatePicker = false
                 }) { Text("确定") }
             },
