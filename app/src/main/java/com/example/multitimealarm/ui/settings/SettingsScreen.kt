@@ -7,18 +7,18 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
+import android.util.Log
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import kotlinx.coroutines.launch
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.core.content.IntentCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -34,22 +34,60 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.core.content.IntentCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.URL
 
 /** 主题模式：0=跟随系统，1=浅色，2=暗色 */
 const val THEME_SYSTEM = 0
 const val THEME_LIGHT = 1
 const val THEME_DARK = 2
+
+/** 检测更新地址：代理与直连依次回退 */
+private val UPDATE_CHECK_URLS = listOf(
+    "https://gh-proxy.com/https://api.github.com/repos/sundys/MultiTimeAlarm/releases/latest",
+    "https://gh-proxy.net/https://api.github.com/repos/sundys/MultiTimeAlarm/releases/latest",
+    "https://api.github.com/repos/sundys/MultiTimeAlarm/releases/latest",
+)
+private const val RELEASES_PAGE = "https://github.com/sundys/MultiTimeAlarm/releases"
+
+/** 依次尝试各地址获取最新版本号（v 前缀已去除），全部失败抛最后异常 */
+private fun fetchLatestVersion(): String {
+    var lastError: Exception? = null
+    for (url in UPDATE_CHECK_URLS) {
+        try {
+            val conn = URL(url).openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 8000
+            conn.readTimeout = 8000
+            conn.setRequestProperty("User-Agent", "MultiTimeAlarm-App")
+            conn.inputStream.use { input ->
+                return JSONObject(input.bufferedReader().readText())
+                    .getString("tag_name").removePrefix("v")
+            }
+        } catch (e: Exception) {
+            lastError = e
+        }
+    }
+    throw lastError ?: IllegalStateException("无可用检测地址")
+}
 
 fun themeLabel(mode: Int): String = when (mode) {
     THEME_LIGHT -> "浅色"
@@ -68,6 +106,33 @@ private fun openAppDetails(context: Context) {
     }
 }
 
+/** 分类小标题 */
+@Composable
+private fun SectionHeader(title: String) {
+    Text(
+        text = title,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 16.dp, top = 18.dp, bottom = 6.dp),
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+/** 版本号比较：remote > current 返回 true（按数值段比较） */
+private fun isNewerVersion(remote: String, current: String): Boolean {
+    val parse = { s: String -> s.split(".").map { it.filter(Char::isDigit).toIntOrNull() ?: 0 } }
+    val a = parse(remote)
+    val b = parse(current)
+    for (i in 0 until maxOf(a.size, b.size)) {
+        val x = a.getOrElse(i) { 0 }
+        val y = b.getOrElse(i) { 0 }
+        if (x != y) return x > y
+    }
+    return false
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -79,7 +144,9 @@ fun SettingsScreen(
     onRestoreJson: (String, (Int, String?) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showAboutDialog by remember { mutableStateOf(false) }
     var ringtoneName by remember {
         mutableStateOf(com.example.multitimealarm.util.RingtoneStore.displayName(context))
     }
@@ -97,11 +164,11 @@ fun SettingsScreen(
         ringtoneName = com.example.multitimealarm.util.RingtoneStore.displayName(context)
     }
 
-    val scope = rememberCoroutineScope()
     var statusText by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
     var pendingRestoreJson by remember { mutableStateOf<String?>(null) }
 
+    // SAF 备份/恢复
     val backupLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
     ) { uri ->
@@ -112,11 +179,8 @@ fun SettingsScreen(
                     context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
                         out.write(json.toByteArray(Charsets.UTF_8))
                     } ?: throw IllegalStateException("无法写入文件")
-                }.onSuccess {
-                    statusText = "备份成功"
-                }.onFailure {
-                    statusText = "备份失败：${it.message}"
-                }
+                }.onSuccess { statusText = "备份成功" }
+                    .onFailure { statusText = "备份失败：${it.message}" }
             }
         }
     }
@@ -129,22 +193,19 @@ fun SettingsScreen(
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         input.readBytes().toString(Charsets.UTF_8)
                     } ?: throw IllegalStateException("无法读取文件")
-                }.onSuccess { json ->
-                    pendingRestoreJson = json
-                }.onFailure {
-                    statusText = "读取备份失败：${it.message}"
-                }
+                }.onSuccess { json -> pendingRestoreJson = json }
+                    .onFailure { statusText = "读取备份失败：${it.message}" }
             }
         }
     }
 
-    val lifecycleOwner = LocalLifecycleOwner.current
     val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
     var batteryIgnoring by remember { mutableStateOf(false) }
     var fullScreenAllowed by remember { mutableStateOf(true) }
 
     // 每次回到此页面时刷新授权状态（含从系统设置返回）
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 batteryIgnoring = powerManager.isIgnoringBatteryOptimizations(context.packageName)
@@ -171,7 +232,14 @@ fun SettingsScreen(
             )
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .verticalScroll(rememberScrollState()),
+        ) {
+            // ============ 通用 ============
+            SectionHeader("通用")
             ListItem(
                 headlineContent = { Text("主题颜色") },
                 supportingContent = { Text(themeLabel(themeMode)) },
@@ -180,7 +248,6 @@ fun SettingsScreen(
                     .clickable { showThemeDialog = true },
             )
             HorizontalDivider()
-
             ListItem(
                 headlineContent = { Text("铃声设置") },
                 supportingContent = { Text(ringtoneName) },
@@ -202,7 +269,8 @@ fun SettingsScreen(
             )
             HorizontalDivider()
 
-            // Android 14+ 全屏意图权限默认不授予，需用户手动允许，否则到点只弹通知不响铃
+            // ============ 权限 ============
+            SectionHeader("权限")
             if (Build.VERSION.SDK_INT >= 34) {
                 ListItem(
                     headlineContent = { Text("全屏弹窗权限") },
@@ -227,8 +295,6 @@ fun SettingsScreen(
                 )
                 HorizontalDivider()
             }
-
-            // 后台弹窗（悬浮窗）权限：ColorOS 等管控后台弹出界面的依据
             ListItem(
                 headlineContent = { Text("后台弹窗权限") },
                 supportingContent = {
@@ -253,43 +319,6 @@ fun SettingsScreen(
                     },
             )
             HorizontalDivider()
-
-            ListItem(
-                headlineContent = { Text("备份闹钟") },
-                supportingContent = { Text("导出全部闹钟为备份文件") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        val name = "duoshi_backup_" +
-                            java.time.LocalDateTime.now()
-                                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".json"
-                        runCatching { backupLauncher.launch(name) }
-                    },
-            )
-            HorizontalDivider()
-
-            ListItem(
-                headlineContent = { Text("恢复闹钟") },
-                supportingContent = { Text("从备份文件恢复，将覆盖当前全部闹钟") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
-                        runCatching {
-                            restoreLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
-                        }
-                    },
-            )
-            HorizontalDivider()
-
-            ListItem(
-                headlineContent = { Text("清除全部闹钟", color = MaterialTheme.colorScheme.error) },
-                supportingContent = { Text("删除所有闹钟任务及提醒时间，不可恢复") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showClearConfirm = true },
-            )
-            HorizontalDivider()
-
             ListItem(
                 headlineContent = { Text("忽略电池优化") },
                 supportingContent = {
@@ -302,7 +331,6 @@ fun SettingsScreen(
                     .fillMaxWidth()
                     .clickable {
                         if (batteryIgnoring) {
-                            // 已授权：打开系统电池优化列表供查看/撤销
                             runCatching {
                                 context.startActivity(
                                     Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
@@ -322,7 +350,6 @@ fun SettingsScreen(
                     },
             )
             HorizontalDivider()
-
             ListItem(
                 headlineContent = { Text("自启动设置") },
                 supportingContent = {
@@ -331,7 +358,6 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable {
-                        // 优先尝试 MIUI 自启动管理页，失败则回退应用详情页
                         val miui = runCatching {
                             context.startActivity(
                                 Intent().setClassName(
@@ -344,7 +370,6 @@ fun SettingsScreen(
                     },
             )
             HorizontalDivider()
-
             Text(
                 text = "国产定制系统（MIUI/EMUI/ColorOS 等）的后台管控可能拦截闹钟广播。" +
                     "建议完成\"忽略电池优化\"并在自启动设置中允许本应用。",
@@ -352,6 +377,54 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            // ============ 数据 ============
+            SectionHeader("数据")
+            ListItem(
+                headlineContent = { Text("备份闹钟") },
+                supportingContent = { Text("导出全部闹钟为备份文件") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        val name = "duoshi_backup_" +
+                            java.time.LocalDateTime.now()
+                                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".json"
+                        runCatching { backupLauncher.launch(name) }
+                    },
+            )
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("恢复闹钟") },
+                supportingContent = { Text("从备份文件恢复，将覆盖当前全部闹钟") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        runCatching {
+                            restoreLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                        }
+                    },
+            )
+            HorizontalDivider()
+            ListItem(
+                headlineContent = { Text("清除全部闹钟", color = MaterialTheme.colorScheme.error) },
+                supportingContent = { Text("删除所有闹钟任务及提醒时间，不可恢复") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showClearConfirm = true },
+            )
+            HorizontalDivider()
+
+            // ============ 关于 ============
+            ListItem(
+                headlineContent = {
+                    Text("关于", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showAboutDialog = true },
+            )
+            HorizontalDivider()
+
             statusText?.let {
                 Text(
                     text = it,
@@ -431,6 +504,63 @@ fun SettingsScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showThemeDialog = false }) { Text("取消") }
+            },
+        )
+    }
+
+    if (showAboutDialog) {
+        val versionName = remember {
+            runCatching {
+                context.packageManager.getPackageInfo(context.packageName, 0).versionName
+            }.getOrNull() ?: "1.0"
+        }
+        var updateStatus by remember { mutableStateOf<String?>(null) }
+        var checking by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showAboutDialog = false },
+            title = { Text("关于多时闹钟") },
+            text = {
+                Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "一个可设置多个提醒时间的闹钟应用。支持每天 / 按星期 / 每月 / 间隔循环 / 仅一次提醒，" +
+                            "一个闹钟可绑定多个时间点，深度适配国产系统后台管控。",
+                        fontSize = 14.sp,
+                    )
+                    Text("当前版本：v$versionName", fontSize = 13.sp)
+                    updateStatus?.let {
+                        Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                    }
+                    TextButton(
+                        onClick = {
+                            if (checking) return@TextButton
+                            checking = true
+                            updateStatus = "正在检测更新…"
+                            scope.launch {
+                                val remote = withContext(Dispatchers.IO) {
+                                    runCatching { fetchLatestVersion() }
+                                }
+                                checking = false
+                                remote.onSuccess { latest ->
+                                    updateStatus = if (isNewerVersion(latest, versionName)) {
+                                        "发现新版本 v$latest，请前往 $RELEASES_PAGE 下载"
+                                    } else {
+                                        "当前已是最新版本 v$versionName"
+                                    }
+                                }.onFailure {
+                                    Log.e("UpdateCheck", "检测更新失败", it)
+                                    val reason = it.message?.take(60) ?: "网络不可用"
+                                    updateStatus = "检测失败：$reason"
+                                }
+                            }
+                        },
+                    ) {
+                        Text(if (checking) "检测中…" else "检测更新")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAboutDialog = false }) { Text("关闭") }
             },
         )
     }
