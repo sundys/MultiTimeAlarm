@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">多时闹钟</string>
+    <string name="default_task_name">定时提醒</string>
+    <string name="alarm_channel_name">闹钟响铃</string>
+    <string name="alarm_channel_desc">闹钟到点响铃提醒</string>
+</resources>

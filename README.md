@@ -1,63 +1,89 @@
 # 多时闹钟（MultiTimeAlarm）
 
-一款 Android 闹钟应用，特色功能：**一个定时任务可设置多个提醒时间**。
+一款 Android 闹钟应用，核心特色是**一个定时任务可设置多个提醒时间**，专为需要"按日程多点提醒"的场景设计（服药、打卡、会议前多次提醒等）。
 
-- **每天重复**：如"吃药"任务设 8:00 / 12:00 / 18:00，每天各提醒一次，可单独启停某个时间点
-- **按星期**：勾选周一至周日任意组合（含工作日 / 周末 / 每天快捷预设）
-- **每月**：每月某日提醒（缴费、纪念日），该月无此日期自动跳过
-- **间隔循环**：每隔 N 小时/分钟循环提醒（如每 2 小时休息一次），所设时间点为起始锚点
-- **仅一次**：如"开会"任务指定日期 09:50 / 09:55，各提醒一次，全部提醒完后任务自动关闭
-- **贪睡可配置**：每个任务可设置贪睡间隔（分钟）与次数上限（0 = 不限）
-- **小憩倒计时**：列表页一键"N 分钟后响铃"，适合午休小睡
-- 到点响铃：高优先级通知 + 全屏响铃页（锁屏直接弹出），铃声 + 振动，支持关闭 / 贪睡
-- 重启不丢闹钟（开机广播全量重调度），进程被杀也有冷启动兜底重调度
+## 功能特性
+
+### 核心特色
+- **一个闹钟，多个时间点**：一个任务可添加任意多个提醒时间，统一管理、可单独启停
+- **五种提醒类型**：
+  - 每天重复：如吃药 8:00 / 12:00 / 18:00
+  - 按星期：周一至周日任意组合（工作日 / 周末 / 每天快捷预设）
+  - 每月：每月某日提醒，该月无此日期自动跳过
+  - 间隔循环：每隔 N 小时 M 分钟持续循环提醒
+  - 仅一次：指定日期多点提醒，全部触发后自动关闭
+- **时间精确到秒**：时/分/秒三列数字滚动选择器
+- **小憩倒计时**：一键"N 分钟后响铃"
+
+### 提醒可靠性
+- `AlarmManager.setAlarmClock()` 精确调度：免"闹钟和提醒"特殊权限，Doze 休眠下准时触发
+- 高优先级通知 + 全屏 Intent，锁屏直接弹出响铃页（铃声 + 振动）
+- 贪睡可配置：间隔（分钟）与次数上限（0 = 不限）
+- 重启后开机广播自动恢复全部闹钟；进程被杀有冷启动兜底重调度
+- 设置页提供"忽略电池优化"与"自启动设置"入口，适配 MIUI/EMUI 等国产 ROM
+
+### 界面
+- 闹钟 / 小憩双 Tab 首页，滑动切换，胶囊形指示器
+- 浮动圆形 + 按钮，列表滑动时自动隐藏、停下显示
+- 主题颜色三模式：跟随系统 / 浅色 / 暗色（状态栏与导航栏同步跟随）
 
 ## 技术栈
 
-Kotlin 2.0 · Jetpack Compose（Material 3）· Room · KSP · AlarmManager（`setAlarmClock`）
+| 项 | 版本/说明 |
+|----|-----------|
+| 语言 | Kotlin 2.0.20 |
+| UI | Jetpack Compose（Material 3，BOM 2024.09.03） |
+| 数据库 | Room 2.6.1（KSP），平滑版本迁移 |
+| 调度 | AlarmManager `setAlarmClock` |
+| 构建 | Gradle 8.7 + AGP 8.5.2，JDK 17 |
+| 兼容 | minSdk 26（Android 8.0）～ targetSdk 34 |
 
-## 目录结构
+## 项目结构
 
 ```
 app/src/main/java/com/example/multitimealarm/
-├── data/                  # Room：AlarmTask(任务) + AlarmTime(时间点) 双表
-├── scheduler/
-│   ├── AlarmScheduler.kt  # 核心：每个时间点独立注册 setAlarmClock，DAILY 自续订 / ONCE 触发完关闭
-│   ├── AlarmReceiver.kt   # 触发入口：响铃通知 + 续订逻辑
-│   └── BootReceiver.kt    # 开机重调度
-├── notify/AlarmNotifier.kt# 高优先级 + 全屏 Intent 通知
-├── ring/RingActivity.kt   # 响铃页（锁屏弹出、铃声、振动、贪睡）
-└── ui/                    # Compose 列表页 + 编辑页（多时间点编辑器）
+├── data/          # Room：AlarmTask(任务) + AlarmTime(时间点) 双表与迁移
+├── scheduler/     # 调度核心：AlarmScheduler / AlarmReceiver / BootReceiver
+├── notify/        # 高优先级全屏 Intent 通知
+├── ring/          # 响铃页（铃声、振动、贪睡）
+├── ui/
+│   ├── list/      # 闹钟 / 小憩 Tab 页
+│   ├── edit/      # 闹钟编辑页 + 时分秒数字选择器
+│   └── settings/  # 设置页（主题、电池优化）
+└── util/          # 下一次触发时间计算（含单元测试覆盖）
 ```
 
-## 构建运行
+## 本地构建
 
-1. 用 **Android Studio（Koala 或更新）** 打开本目录
-2. 首次打开若提示找不到 Gradle Wrapper，选择使用 AS 推荐的 Gradle 版本即可（工程按 Gradle 8.7 / AGP 8.5.2 配置）
-3. 需要 **JDK 17**（Android Studio 自带）
-4. 首次同步会自动下载 Compose / Room / KSP 依赖
-5. 连接手机或启动模拟器，点 Run ▶ 安装运行
+1. 克隆仓库：`git clone git@wapxw:sundys/MultiTimeAlarm.git`
+2. 用 Android Studio（Koala+，自带 JDK 17）打开工程根目录
+3. 在 `local.properties` 中配置 SDK 路径：`sdk.dir=<你的 Android SDK 路径>`（该文件不入库）
+4. Run ▶ 安装到设备；或命令行：`./gradlew assembleDebug`
 
-命令行构建（已装 Gradle 时）：`gradle wrapper && ./gradlew assembleDebug`，产物在 `app/build/outputs/apk/debug/`。
+产物路径：`app/build/outputs/apk/debug/app-debug.apk`
 
-## 首次启动需要授权
+## 自动编译发布（部署摘要）
 
-- **通知权限**（Android 13+）：App 内顶部横幅引导授权，否则无法弹出响铃通知
-- 调度使用 `AlarmManager.setAlarmClock()`，**不需要** "闹钟和提醒"特殊权限，安装即可用
+项目使用 GitHub Actions 自动编译并发布 Release，流程如下：
 
-## 功能自测清单
+1. **触发**：推送 `v*` 格式的 tag（如 `v1.1.0`）即自动触发；也支持在 Actions 页面手动触发
+2. **编译**：Ubuntu 环境使用 Gradle Wrapper 执行 `assembleDebug assembleRelease`，产出：
+   - `MultiTimeAlarm-<tag>-debug.apk`（可直接安装）
+   - `MultiTimeAlarm-<tag>-release-unsigned.apk`（未签名 release，需自行签名后安装）
+3. **发布**：自动创建 GitHub Release，附件为上述 APK；**更新摘要自动取自 `CHANGELOG.md` 最顶部的一个小节**，方便区分每个版本改了什么
 
-- [ ] 新建"每天重复"任务，添加 2~3 个时间点（含 1 个 1~2 分钟后的时间）→ 保存后列表显示"下次响铃"
-- [ ] 新建"按星期"任务，只勾选周一 → 保存后下次响铃应落在最近的周一；工作日/周末预设正确
-- [ ] 新建"每月"任务设 31 日 → 2 月/4 月等无 31 日的月份自动跳过
-- [ ] 新建"间隔循环"任务每 2 小时，起始时间设 1 分钟后 → 到点响铃，之后每 2 小时重复
-- [ ] 贪睡：设间隔 1 分钟、上限 2 次 → 响铃后贪睡两次后按钮消失，只能关闭
-- [ ] 小憩：点"小憩"选 1 分钟 → 到点响铃一次后该任务自动关闭
-- [ ] 到点锁屏状态下直接弹出响铃页，铃声 + 振动；"关闭"停止
-- [ ] 关闭某个时间点开关 → 该时间点不再响，其他时间点正常
-- [ ] 关闭任务总开关 → 所有时间点不再响；重新打开 → 全部恢复
-- [ ] 新建"仅一次"任务，选择明天日期 + 2 个时间点 → 触发一次后该时间点自动失效；全部触发完任务自动关闭
-- [ ] 编辑任务：删除时间点、新增时间点后保存 → 旧的被取消、新的生效
-- [ ] 重启手机 → 所有闹钟仍按时触发
-- [ ] 删除任务 → 不再响铃
-# MultiTimeAlarm
+发版操作：
+
+```bash
+# 1. 在 CHANGELOG.md 顶部添加新版本小节（## vX.Y.Z 开头）
+# 2. 提交并推送
+git add CHANGELOG.md && git commit -m "release: vX.Y.Z" && git push
+# 3. 打 tag 触发自动发布
+git tag vX.Y.Z && git push origin vX.Y.Z
+```
+
+## 首次使用授权说明
+
+- **通知权限**（Android 13+）：首次启动自动发起授权请求
+- 调度不需要"闹钟和提醒"特殊权限，安装即可用
+- 建议在 设置 → 忽略电池优化 中授权，并在自启动设置中允许本应用，避免国产 ROM 后台管控拦截闹钟
