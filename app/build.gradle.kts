@@ -13,7 +13,7 @@ android {
         applicationId = "com.sundys.alarm"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
+        versionCode = 6
         versionName = "1.1.3"
     }
 
