@@ -180,6 +180,9 @@ private fun AlarmApp(
             themeMode = themeMode,
             onThemeModeChange = onThemeModeChange,
             onBack = { showSettings = false },
+            onClearAll = viewModel::clearAllAlarms,
+            onExportJson = viewModel::exportAlarmsJson,
+            onRestoreJson = { json, onResult -> viewModel.restoreAlarmsJson(json, onResult) },
         )
         return
     }

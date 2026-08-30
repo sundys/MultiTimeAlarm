@@ -55,6 +55,25 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch { repository.deleteTask(taskId) }
     }
 
+    /** 清除全部闹钟（含系统注册与数据库），回调清除的数量 */
+    fun clearAllAlarms(onDone: (Int) -> Unit) {
+        viewModelScope.launch {
+            onDone(repository.deleteAll())
+        }
+    }
+
+    /** 导出全部闹钟 JSON（在 IO 线程调用） */
+    suspend fun exportAlarmsJson(): String = repository.exportJson()
+
+    /** 从 JSON 恢复（覆盖当前），onResult 回调 (恢复数, null) 或 (0, 错误信息) */
+    fun restoreAlarmsJson(json: String, onResult: (Int, String?) -> Unit) {
+        viewModelScope.launch {
+            runCatching { repository.restoreJson(json) }
+                .onSuccess { onResult(it, null) }
+                .onFailure { onResult(0, it.message ?: "恢复失败") }
+        }
+    }
+
     /** 小憩倒计时：N 分钟后响一次，实现为一次性单时间点任务（自动纳入开机恢复等既有机制） */
     fun createNapTask(minutes: Int) {
         viewModelScope.launch {

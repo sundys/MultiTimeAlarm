@@ -10,6 +10,8 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.core.content.IntentCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -72,6 +74,9 @@ fun SettingsScreen(
     themeMode: Int,
     onThemeModeChange: (Int) -> Unit,
     onBack: () -> Unit,
+    onClearAll: ((Int) -> Unit) -> Unit,
+    onExportJson: suspend () -> String,
+    onRestoreJson: (String, (Int, String?) -> Unit) -> Unit,
 ) {
     val context = LocalContext.current
     var showThemeDialog by remember { mutableStateOf(false) }
@@ -90,6 +95,47 @@ fun SettingsScreen(
         }
         com.example.multitimealarm.util.RingtoneStore.save(context, picked)
         ringtoneName = com.example.multitimealarm.util.RingtoneStore.displayName(context)
+    }
+
+    val scope = rememberCoroutineScope()
+    var statusText by remember { mutableStateOf<String?>(null) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+    var pendingRestoreJson by remember { mutableStateOf<String?>(null) }
+
+    val backupLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    val json = onExportJson()
+                    context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                        out.write(json.toByteArray(Charsets.UTF_8))
+                    } ?: throw IllegalStateException("无法写入文件")
+                }.onSuccess {
+                    statusText = "备份成功"
+                }.onFailure {
+                    statusText = "备份失败：${it.message}"
+                }
+            }
+        }
+    }
+    val restoreLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        input.readBytes().toString(Charsets.UTF_8)
+                    } ?: throw IllegalStateException("无法读取文件")
+                }.onSuccess { json ->
+                    pendingRestoreJson = json
+                }.onFailure {
+                    statusText = "读取备份失败：${it.message}"
+                }
+            }
+        }
     }
 
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -209,6 +255,42 @@ fun SettingsScreen(
             HorizontalDivider()
 
             ListItem(
+                headlineContent = { Text("备份闹钟") },
+                supportingContent = { Text("导出全部闹钟为备份文件") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        val name = "duoshi_backup_" +
+                            java.time.LocalDateTime.now()
+                                .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".json"
+                        runCatching { backupLauncher.launch(name) }
+                    },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                headlineContent = { Text("恢复闹钟") },
+                supportingContent = { Text("从备份文件恢复，将覆盖当前全部闹钟") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        runCatching {
+                            restoreLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                        }
+                    },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                headlineContent = { Text("清除全部闹钟", color = MaterialTheme.colorScheme.error) },
+                supportingContent = { Text("删除所有闹钟任务及提醒时间，不可恢复") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showClearConfirm = true },
+            )
+            HorizontalDivider()
+
+            ListItem(
                 headlineContent = { Text("忽略电池优化") },
                 supportingContent = {
                     Text(
@@ -270,7 +352,52 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+            statusText?.let {
+                Text(
+                    text = it,
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
         }
+    }
+
+    pendingRestoreJson?.let { json ->
+        AlertDialog(
+            onDismissRequest = { pendingRestoreJson = null },
+            title = { Text("恢复闹钟") },
+            text = { Text("将从备份文件恢复闹钟，并覆盖当前全部闹钟。确定继续吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val json2 = json
+                    pendingRestoreJson = null
+                    onRestoreJson(json2) { count, err ->
+                        statusText = if (err == null) "已恢复 $count 个闹钟" else "恢复失败：$err"
+                    }
+                }) { Text("恢复") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingRestoreJson = null }) { Text("取消") }
+            },
+        )
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("清除全部闹钟") },
+            text = { Text("将删除所有闹钟任务及其提醒时间，且不可恢复。确定继续吗？") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showClearConfirm = false
+                    onClearAll { count -> statusText = "已清除 $count 个闹钟" }
+                }) { Text("清除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) { Text("取消") }
+            },
+        )
     }
 
     if (showThemeDialog) {

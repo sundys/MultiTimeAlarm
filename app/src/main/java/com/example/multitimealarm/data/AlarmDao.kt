@@ -24,6 +24,13 @@ interface AlarmDao {
     @Query("SELECT * FROM alarm_tasks WHERE enabled = 1")
     suspend fun getEnabledTasks(): List<TaskWithTimes>
 
+    @Transaction
+    @Query("SELECT * FROM alarm_tasks ORDER BY createdAt DESC")
+    suspend fun getAllTasks(): List<TaskWithTimes>
+
+    @Query("DELETE FROM alarm_tasks")
+    suspend fun deleteAllTasks()
+
     @Query("SELECT * FROM alarm_times WHERE id = :timeId")
     suspend fun getTime(timeId: Long): AlarmTimeEntity?
 
