@@ -68,6 +68,7 @@ private val UPDATE_CHECK_URLS = listOf(
     "https://api.github.com/repos/sundys/MultiTimeAlarm/releases/latest",
 )
 private const val RELEASES_PAGE = "https://github.com/sundys/MultiTimeAlarm/releases"
+private const val REPO_PAGE = "https://github.com/sundys/MultiTimeAlarm"
 
 /** 依次尝试各地址获取最新版本号（v 前缀已去除），全部失败抛最后异常 */
 private fun fetchLatestVersion(): String {
@@ -528,6 +529,19 @@ fun SettingsScreen(
                         fontSize = 14.sp,
                     )
                     Text("当前版本：v$versionName", fontSize = 13.sp)
+                    Text(
+                        text = "开源地址：$REPO_PAGE",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(REPO_PAGE))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                        },
+                    )
                     updateStatus?.let {
                         Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                     }
