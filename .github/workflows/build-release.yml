@@ -26,7 +26,24 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # 从 Secrets 解码 keystore（未配置时跳过，release 包将不签名）
+      - name: Restore signing keystore
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$GITHUB_WORKSPACE/keystore.jks"
+            echo "keystore.jks restored (${SIGNING_KEYSTORE_BASE64} bytes -> file)"
+          else
+            echo "未配置 secret SIGNING_KEYSTORE_BASE64，release APK 将不签名"
+          fi
+
       - name: Build APKs
+        env:
+          SIGNING_STORE_FILE: keystore.jks
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: ./gradlew assembleDebug assembleRelease --no-daemon
 
       - name: Collect artifacts
@@ -34,9 +51,15 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           mkdir -p release_apks
           cp app/build/outputs/apk/debug/app-debug.apk "release_apks/MultiTimeAlarm-${TAG}-debug.apk"
-          if ls app/build/outputs/apk/release/*.apk >/dev/null 2>&1; then
-            cp app/build/outputs/apk/release/*.apk "release_apks/MultiTimeAlarm-${TAG}-release-unsigned.apk"
-          fi
+          for f in app/build/outputs/apk/release/*.apk; do
+            [ -e "$f" ] || continue
+            base=$(basename "$f")
+            if echo "$base" | grep -qi "unsigned"; then
+              cp "$f" "release_apks/MultiTimeAlarm-${TAG}-release-unsigned.apk"
+            else
+              cp "$f" "release_apks/MultiTimeAlarm-${TAG}-release.apk"
+            fi
+          done
           ls -la release_apks
 
       # Release 摘要自动取 CHANGELOG.md 最顶部的小节（## vX.Y.Z 下的内容）

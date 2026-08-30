@@ -82,6 +82,33 @@ git add CHANGELOG.md && git commit -m "release: vX.Y.Z" && git push
 git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
+## APK 签名（自动发布）
+
+release 签名通过**环境变量**注入，本地与 CI（GitHub Actions）通用，未配置时自动降级为不签名（产物文件名带 `-unsigned`）。
+
+| 环境变量 | 说明 |
+|----------|------|
+| `SIGNING_STORE_FILE` | keystore 文件路径（CI 中固定为 `keystore.jks`） |
+| `SIGNING_STORE_PASSWORD` | keystore 密码 |
+| `SIGNING_KEY_ALIAS` | 签名 key 别名 |
+| `SIGNING_KEY_PASSWORD` | key 密码 |
+| `SIGNING_KEYSTORE_BASE64` | **仅 CI**：keystore 文件的 Base64 内容（存 GitHub Secrets） |
+
+**CI 配置**：仓库 Settings → Secrets and variables → Actions，添加以上 5 个 Secret。工作流会先把 `SIGNING_KEYSTORE_BASE64` 解码为 `keystore.jks`，再注入其余 4 个变量完成签名，产物为已签名的 `MultiTimeAlarm-<tag>-release.apk`。
+
+**本地签名**：生成/准备好 keystore 后导出前 4 个变量再编译即可：
+
+```bash
+export SIGNING_STORE_FILE=/path/to/keystore.jks
+export SIGNING_STORE_PASSWORD=你的keystore密码
+export SIGNING_KEY_ALIAS=你的key别名
+export SIGNING_KEY_PASSWORD=你的key密码
+./gradlew assembleRelease
+```
+
+生成新 keystore：`keytool -genkeypair -v -keystore keystore.jks -alias 别名 -keyalg RSA -validity 10000`
+生成 CI 用的 Base64：`base64 -w0 keystore.jks`（内容填入 `SIGNING_KEYSTORE_BASE64`）
+
 ## 首次使用授权说明
 
 - **通知权限**（Android 13+）：首次启动自动发起授权请求
