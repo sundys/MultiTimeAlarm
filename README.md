@@ -88,7 +88,7 @@ release 签名通过**环境变量**注入，本地与 CI（GitHub Actions）通
 
 | 环境变量 | 说明 |
 |----------|------|
-| `SIGNING_STORE_FILE` | keystore 文件路径（CI 中固定为 `keystore.jks`） |
+| `SIGNING_STORE_FILE` | keystore 文件路径（CI 中固定为 `keystore.jks`，相对路径以仓库根目录为基准，绝对路径原样支持） |
 | `SIGNING_STORE_PASSWORD` | keystore 密码 |
 | `SIGNING_KEY_ALIAS` | 签名 key 别名 |
 | `SIGNING_KEY_PASSWORD` | key 密码 |

@@ -17,12 +17,13 @@ android {
         versionName = "1.1.0"
     }
 
-    // 签名配置：从环境变量读取（CI 或本地通用），未设置环境变量时 release 不签名
+    // 签名配置：从环境变量读取（CI 或本地通用），未设置环境变量时 release 不签名。
+    // 相对路径基于仓库根目录解析（与 CI 中 keystore 解码位置一致），绝对路径原样支持。
     signingConfigs {
         create("release") {
             val storeFilePath = System.getenv("SIGNING_STORE_FILE")
-            if (storeFilePath != null && file(storeFilePath).exists()) {
-                storeFile = file(storeFilePath)
+            if (storeFilePath != null && rootProject.file(storeFilePath).exists()) {
+                storeFile = rootProject.file(storeFilePath)
                 storePassword = System.getenv("SIGNING_STORE_PASSWORD")
                 keyAlias = System.getenv("SIGNING_KEY_ALIAS")
                 keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
@@ -38,7 +39,7 @@ android {
                 "proguard-rules.pro"
             )
             val storeFilePath = System.getenv("SIGNING_STORE_FILE")
-            if (storeFilePath != null && file(storeFilePath).exists()) {
+            if (storeFilePath != null && rootProject.file(storeFilePath).exists()) {
                 signingConfig = signingConfigs.getByName("release")
             }
         }
