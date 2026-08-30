@@ -13,8 +13,18 @@ android {
         applicationId = "com.example.multitimealarm"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.1.1"
+    }
+
+    // ABI 拆分：只为 arm64-v8a 和 armeabi-v7a 各出包，不生成通用包
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a")
+            isUniversalApk = false
+        }
     }
 
     // 签名配置：从环境变量读取（CI 或本地通用），未设置环境变量时 release 不签名。

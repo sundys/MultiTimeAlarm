@@ -66,10 +66,11 @@ app/src/main/java/com/example/multitimealarm/
 
 项目使用 GitHub Actions 自动编译并发布 Release，流程如下：
 
-1. **触发**：推送 `v*` 格式的 tag（如 `v1.1.0`）即自动触发；也支持在 Actions 页面手动触发
-2. **编译**：Ubuntu 环境使用 Gradle Wrapper 执行 `assembleDebug assembleRelease`，产出：
-   - `MultiTimeAlarm-<tag>-debug.apk`（可直接安装）
-   - `MultiTimeAlarm-<tag>-release-unsigned.apk`（未签名 release，需自行签名后安装）
+1. **触发**：推送 `v*` 格式的 tag（如 `v1.1.1`）即自动触发；也支持在 Actions 页面手动触发
+2. **编译**：Ubuntu 环境使用 Gradle Wrapper 执行 `assembleRelease`，按 ABI 拆分，仅产出正式签名包：
+   - `MultiTimeAlarm-<tag>-arm64-v8a.apk`（64 位，主流机型）
+   - `MultiTimeAlarm-<tag>-armeabi-v7a.apk`（32 位，老旧机型）
+   - 不再产出 debug 测试包与 universal 通用包
 3. **发布**：自动创建 GitHub Release，附件为上述 APK；**更新摘要自动取自 `CHANGELOG.md` 最顶部的一个小节**，方便区分每个版本改了什么
 
 发版操作：
