@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -157,6 +158,12 @@ private fun AlarmApp(
 
     val pagerState = rememberPagerState(initialPage = 0) { 2 }
     val scope = rememberCoroutineScope()
+
+    // 系统返回键：设置页/编辑页返回到首页，而不是退出应用
+    BackHandler(enabled = showSettings || editing != null) {
+        if (showSettings) showSettings = false
+        else editingTaskId.value = null
+    }
 
     // Android 13+ 申请通知权限（安静发起，无需横幅）
     val notificationPermissionLauncher = rememberLauncherForActivityResult(

@@ -1,13 +1,9 @@
 package com.example.multitimealarm.ring
 
 import android.content.Context
-import android.media.AudioAttributes
-import android.media.MediaPlayer
-import android.media.RingtoneManager
-import android.os.Build
+import android.content.Intent
 import android.os.Bundle
-import android.os.VibrationEffect
-import android.os.Vibrator
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Arrangement
@@ -44,7 +40,10 @@ import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
-/** 响铃页：锁屏全屏弹出，播放铃声与振动，支持关闭 / 按任务配置贪睡 */
+/**
+ * 响铃页：锁屏全屏弹出。铃声与振动由 RingService 前台服务承载，
+ * 本页仅展示 UI 与关闭/贪睡操作。
+ */
 class RingActivity : ComponentActivity() {
 
     companion object {
@@ -53,10 +52,23 @@ class RingActivity : ComponentActivity() {
         const val EXTRA_SNOOZE_MINUTES = "extra_snooze_minutes"
         const val EXTRA_SNOOZE_MAX_COUNT = "extra_snooze_max_count" // 0 = 不限次数
         const val EXTRA_SNOOZE_COUNT = "extra_snooze_count"
-    }
 
-    private var mediaPlayer: MediaPlayer? = null
-    private var vibrator: Vibrator? = null
+        fun intent(
+            context: Context,
+            timeId: Long,
+            taskName: String,
+            snoozeMinutes: Int = 5,
+            snoozeMaxCount: Int = 3,
+            snoozeCount: Int = 0,
+        ): Intent = Intent(context, RingActivity::class.java).apply {
+            putExtra(EXTRA_TIME_ID, timeId)
+            putExtra(EXTRA_TASK_NAME, taskName)
+            putExtra(EXTRA_SNOOZE_MINUTES, snoozeMinutes)
+            putExtra(EXTRA_SNOOZE_MAX_COUNT, snoozeMaxCount)
+            putExtra(EXTRA_SNOOZE_COUNT, snoozeCount)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,7 +83,10 @@ class RingActivity : ComponentActivity() {
         val snoozeMaxCount = intent.getIntExtra(EXTRA_SNOOZE_MAX_COUNT, 3)
         val snoozeCount = intent.getIntExtra(EXTRA_SNOOZE_COUNT, 0)
 
-        startRing()
+        // 从通知点入而服务已超时停止时，重新开始响铃
+        if (!RingService.isRinging && timeId > 0) {
+            RingService.start(this, timeId, taskName, snoozeMinutes, snoozeMaxCount, snoozeCount)
+        }
 
         setContent {
             MaterialTheme {
@@ -86,12 +101,12 @@ class RingActivity : ComponentActivity() {
                             "剩余 ${snoozeMaxCount - snoozeCount} 次"
                         },
                         onDismiss = {
-                            stopRing()
+                            RingService.stop(this)
                             finish()
                         },
                         onSnooze = {
                             if (timeId > 0) snooze(timeId, snoozeMinutes, snoozeCount)
-                            stopRing()
+                            RingService.stop(this)
                             finish()
                         },
                     )
@@ -107,56 +122,6 @@ class RingActivity : ComponentActivity() {
             AppDatabase.getInstance(applicationContext).alarmDao()
                 .setSnoozeCount(timeId, currentCount + 1)
         }
-    }
-
-    private fun startRing() {
-        try {
-            val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            mediaPlayer = MediaPlayer().apply {
-                setDataSource(this@RingActivity, alarmUri)
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_ALARM)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
-                isLooping = true
-                prepare()
-                start()
-            }
-        } catch (_: Exception) {
-            // 铃声不可用（如无默认闹钟铃声）时静默，仅振动
-        }
-
-        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        vibrator?.let { v ->
-            val pattern = longArrayOf(0, 600, 400)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                v.vibrate(VibrationEffect.createWaveform(pattern, 0))
-            } else {
-                @Suppress("DEPRECATION")
-                v.vibrate(pattern, 0)
-            }
-        }
-    }
-
-    private fun stopRing() {
-        mediaPlayer?.run {
-            try {
-                if (isPlaying) stop()
-                release()
-            } catch (_: Exception) {
-            }
-        }
-        mediaPlayer = null
-        vibrator?.cancel()
-        vibrator = null
-    }
-
-    override fun onDestroy() {
-        stopRing()
-        super.onDestroy()
     }
 }
 

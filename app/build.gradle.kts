@@ -10,11 +10,11 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.example.multitimealarm"
+        applicationId = "com.sundys.alarm"
         minSdk = 26
         targetSdk = 34
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.1.2"
     }
 
     // ABI 拆分：只为 arm64-v8a 和 armeabi-v7a 各出包，不生成通用包

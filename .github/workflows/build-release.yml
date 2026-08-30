@@ -75,6 +75,27 @@ jobs:
           echo "----- release notes -----"
           cat release_notes.md
 
+      # 删除历史遗留版本（包名变更前发布的旧版）
+      - name: Delete legacy releases and tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LEGACY_TAGS: "v1.1.0 v1.1.1"
+        run: |
+          for TAG in $LEGACY_TAGS; do
+            RID=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/releases?per_page=100" \
+              | jq -r "[.[] | select(.tag_name == \"$TAG\")][0].id // empty")
+            if [ -n "$RID" ]; then
+              code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                "https://api.github.com/repos/${{ github.repository }}/releases/$RID")
+              echo "删除旧 Release $TAG (#$RID) -> HTTP $code"
+            fi
+            curl -sf -X DELETE -H "Authorization: Bearer $GH_TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/git/refs/tags/$TAG" \
+              && echo "删除旧 tag $TAG" || echo "tag $TAG 不存在或删除失败"
+          done
+
       # 若同名 tag 的 Release 已存在（重发场景），先清空其历史附件。
       # 通过 /releases 列表按 tag_name 过滤（避免 tag 重建瞬间的查询 404），带重试。
       - name: Remove stale release assets

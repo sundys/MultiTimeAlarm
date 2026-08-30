@@ -6,10 +6,17 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <!-- 悬浮窗：ColorOS 等国产 ROM 的"后台弹窗"管控依据，授权后到点才能直接弹出响铃页 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 响铃前台服务：进程提升为前台重要性，避免被 ROM 按缓存进程回收 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- 请求忽略电池优化（国产 ROM 省电策略可能拦截闹钟） -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-    <!-- setAlarmClock() 不需要精确闹钟权限；此权限用于 UI 上提示与未来扩展 -->
+    <!-- 精确闹钟：USE_EXACT_ALARM 为闹钟类应用专用，Android 13+ 自动授予；
+         SCHEDULE_EXACT_ALARM 兼容旧授权路径 -->
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <application
@@ -37,6 +44,11 @@
             android:turnScreenOn="true"
             android:excludeFromRecents="true"
             android:launchMode="singleInstance" />
+
+        <service
+            android:name=".ring.RingService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
 
         <receiver
             android:name=".scheduler.AlarmReceiver"

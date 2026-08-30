@@ -34,45 +34,37 @@ object AlarmNotifier {
             .createNotificationChannel(channel)
     }
 
-    /** 发出全屏响铃通知，锁屏时直接拉起 RingActivity */
+    /** 是否允许全屏意图（Android 14+ 需用户授权，低版本默认允许） */
+    fun canUseFullScreenIntent(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < 34) return true
+        return NotificationManagerCompat.from(context).canUseFullScreenIntent()
+    }
+
+    /** 发出响铃：改为启动前台服务（服务内发通知+播放铃声），不依赖响铃页是否被 ROM 放行 */
     fun notifyRing(context: Context, task: AlarmTaskEntity, time: AlarmTimeEntity) {
         ensureChannel(context)
-
-        val fullScreenIntent = Intent(context, RingActivity::class.java).apply {
-            putExtra(RingActivity.EXTRA_TIME_ID, time.id)
-            putExtra(RingActivity.EXTRA_TASK_NAME, task.name)
-            putExtra(RingActivity.EXTRA_SNOOZE_MINUTES, task.snoozeMinutes)
-            putExtra(RingActivity.EXTRA_SNOOZE_MAX_COUNT, task.snoozeMaxCount)
-            putExtra(RingActivity.EXTRA_SNOOZE_COUNT, time.snoozeCount)
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        val fullScreenPendingIntent = PendingIntent.getActivity(
+        com.example.multitimealarm.ring.RingService.start(
             context,
-            time.id.toInt(),
-            fullScreenIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            time.copy(snoozeCount = time.snoozeCount),
+            task,
+            time.snoozeCount,
         )
+    }
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle(task.name.ifBlank { context.getString(R.string.default_task_name) })
-            .setContentText("提醒时间到")
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setFullScreenIntent(fullScreenPendingIntent, true)
-            .setAutoCancel(true)
-            .setOngoing(true)
-            .build()
-
-        if (Build.VERSION.SDK_INT >= 33 &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            // 无通知权限时仍尝试全屏意图（部分 ROM 允许），否则响铃页无法拉起
-            context.startActivity(fullScreenIntent)
-            return
-        }
-        NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
+    fun ringActivityIntent(
+        context: Context,
+        timeId: Long,
+        taskName: String,
+        snoozeMinutes: Int = 5,
+        snoozeMaxCount: Int = 3,
+        snoozeCount: Int = 0,
+    ): Intent = Intent(context, RingActivity::class.java).apply {
+        putExtra(RingActivity.EXTRA_TIME_ID, timeId)
+        putExtra(RingActivity.EXTRA_TASK_NAME, taskName)
+        putExtra(RingActivity.EXTRA_SNOOZE_MINUTES, snoozeMinutes)
+        putExtra(RingActivity.EXTRA_SNOOZE_MAX_COUNT, snoozeMaxCount)
+        putExtra(RingActivity.EXTRA_SNOOZE_COUNT, snoozeCount)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
 
     fun cancel(context: Context) {

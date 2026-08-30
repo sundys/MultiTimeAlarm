@@ -1,10 +1,16 @@
 package com.example.multitimealarm.ui.settings
 
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
+import android.media.RingtoneManager
 import android.net.Uri
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.IntentCompat
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -69,17 +75,38 @@ fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var showThemeDialog by remember { mutableStateOf(false) }
-
-    // 每次回到此页面时刷新电池优化状态（含从系统授权弹窗返回）
-    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-    var batteryIgnoring by remember {
-        mutableStateOf(powerManager.isIgnoringBatteryOptimizations(context.packageName))
+    var ringtoneName by remember {
+        mutableStateOf(com.example.multitimealarm.util.RingtoneStore.displayName(context))
     }
+
+    // 系统铃声选择器（ColorOS/MIUI 等会自动跳转各自铃声选择界面）
+    val ringtonePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val picked = result.data?.let {
+            IntentCompat.getParcelableExtra(
+                it, RingtoneManager.EXTRA_RINGTONE_PICKED_URI, Uri::class.java
+            )
+        }
+        com.example.multitimealarm.util.RingtoneStore.save(context, picked)
+        ringtoneName = com.example.multitimealarm.util.RingtoneStore.displayName(context)
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
+    val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    var batteryIgnoring by remember { mutableStateOf(false) }
+    var fullScreenAllowed by remember { mutableStateOf(true) }
+
+    // 每次回到此页面时刷新授权状态（含从系统设置返回）
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 batteryIgnoring = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+                ringtoneName = com.example.multitimealarm.util.RingtoneStore.displayName(context)
+                if (Build.VERSION.SDK_INT >= 34) {
+                    fullScreenAllowed = context.getSystemService(NotificationManager::class.java)
+                        .canUseFullScreenIntent()
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -105,6 +132,79 @@ fun SettingsScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clickable { showThemeDialog = true },
+            )
+            HorizontalDivider()
+
+            ListItem(
+                headlineContent = { Text("铃声设置") },
+                supportingContent = { Text(ringtoneName) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        val pickerIntent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "选择闹钟铃声")
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, true)
+                            com.example.multitimealarm.util.RingtoneStore.resolveUri(context)?.let {
+                                putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, it)
+                            }
+                        }
+                        runCatching { ringtonePicker.launch(pickerIntent) }
+                            .onFailure { openAppDetails(context) }
+                    },
+            )
+            HorizontalDivider()
+
+            // Android 14+ 全屏意图权限默认不授予，需用户手动允许，否则到点只弹通知不响铃
+            if (Build.VERSION.SDK_INT >= 34) {
+                ListItem(
+                    headlineContent = { Text("全屏弹窗权限") },
+                    supportingContent = {
+                        Text(
+                            if (fullScreenAllowed) "已允许，到点自动弹出响铃页"
+                            else "未允许，到点只显示通知不响铃。点击前往授权"
+                        )
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT,
+                                        Uri.parse("package:${context.packageName}"),
+                                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }.onFailure { openAppDetails(context) }
+                        },
+                )
+                HorizontalDivider()
+            }
+
+            // 后台弹窗（悬浮窗）权限：ColorOS 等管控后台弹出界面的依据
+            ListItem(
+                headlineContent = { Text("后台弹窗权限") },
+                supportingContent = {
+                    Text(
+                        if (Settings.canDrawOverlays(context)) "已允许，后台到点可直接弹出响铃页"
+                        else "建议允许，国产系统后台弹出界面需要此权限"
+                    )
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        if (!Settings.canDrawOverlays(context)) {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        Uri.parse("package:${context.packageName}"),
+                                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }.onFailure { openAppDetails(context) }
+                        }
+                    },
             )
             HorizontalDivider()
 
