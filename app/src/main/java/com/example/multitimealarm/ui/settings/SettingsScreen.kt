@@ -61,34 +61,8 @@ const val THEME_SYSTEM = 0
 const val THEME_LIGHT = 1
 const val THEME_DARK = 2
 
-/** 检测更新地址：代理与直连依次回退 */
-private val UPDATE_CHECK_URLS = listOf(
-    "https://gh-proxy.com/https://api.github.com/repos/sundys/MultiTimeAlarm/releases/latest",
-    "https://gh-proxy.net/https://api.github.com/repos/sundys/MultiTimeAlarm/releases/latest",
-    "https://api.github.com/repos/sundys/MultiTimeAlarm/releases/latest",
-)
-private const val RELEASES_PAGE = "https://github.com/sundys/MultiTimeAlarm/releases"
 private const val REPO_PAGE = "https://github.com/sundys/MultiTimeAlarm"
-
-/** 依次尝试各地址获取最新版本号（v 前缀已去除），全部失败抛最后异常 */
-private fun fetchLatestVersion(): String {
-    var lastError: Exception? = null
-    for (url in UPDATE_CHECK_URLS) {
-        try {
-            val conn = URL(url).openConnection() as java.net.HttpURLConnection
-            conn.connectTimeout = 8000
-            conn.readTimeout = 8000
-            conn.setRequestProperty("User-Agent", "MultiTimeAlarm-App")
-            conn.inputStream.use { input ->
-                return JSONObject(input.bufferedReader().readText())
-                    .getString("tag_name").removePrefix("v")
-            }
-        } catch (e: Exception) {
-            lastError = e
-        }
-    }
-    throw lastError ?: IllegalStateException("无可用检测地址")
-}
+private const val RELEASES_PAGE = "https://github.com/sundys/MultiTimeAlarm/releases"
 
 fun themeLabel(mode: Int): String = when (mode) {
     THEME_LIGHT -> "浅色"
@@ -517,6 +491,35 @@ fun SettingsScreen(
         }
         var updateStatus by remember { mutableStateOf<String?>(null) }
         var checking by remember { mutableStateOf(false) }
+        var releaseJson by remember { mutableStateOf<String?>(null) }
+        var foundNewTag by remember { mutableStateOf<String?>(null) }
+        var downloading by remember { mutableStateOf(false) }
+        var downloadPct by remember { mutableStateOf(0) }
+        var downloadedPath by remember { mutableStateOf<String?>(null) }
+        var downloadError by remember { mutableStateOf<String?>(null) }
+
+        fun startDownload() {
+            val json = releaseJson ?: return
+            if (downloading) return
+            downloading = true
+            downloadPct = 0
+            downloadError = null
+            downloadedPath = null
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val asset = com.example.multitimealarm.util.UpdateDownloader.pickApkAsset(json)
+                            ?: throw IllegalStateException("未找到适合本机的安装包")
+                        com.example.multitimealarm.util.UpdateDownloader.downloadApk(
+                            context, asset.third, asset.second
+                        ) { pct -> downloadPct = pct }
+                    }
+                }
+                downloading = false
+                result.onSuccess { path -> downloadedPath = path }
+                    .onFailure { downloadError = it.message?.take(80) ?: "下载失败" }
+            }
+        }
 
         AlertDialog(
             onDismissRequest = { showAboutDialog = false },
@@ -542,6 +545,30 @@ fun SettingsScreen(
                             }
                         },
                     )
+                    if (foundNewTag != null) {
+                        when {
+                            downloading -> {
+                                Text("下载更新中 $downloadPct%", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                                androidx.compose.material3.LinearProgressIndicator(
+                                    progress = { downloadPct / 100f },
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                            downloadedPath != null -> Text(
+                                "已下载到 $downloadedPath，打开文件管理器点击安装即可升级",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                            downloadError != null -> Text(
+                                "下载失败：$downloadError",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            else -> TextButton(onClick = { startDownload() }) {
+                                Text("下载更新")
+                            }
+                        }
+                    }
                     updateStatus?.let {
                         Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                     }
@@ -552,14 +579,23 @@ fun SettingsScreen(
                             updateStatus = "正在检测更新…"
                             scope.launch {
                                 val remote = withContext(Dispatchers.IO) {
-                                    runCatching { fetchLatestVersion() }
+                                    runCatching {
+                                        com.example.multitimealarm.util.UpdateDownloader.fetchLatestReleaseJson()
+                                    }
                                 }
                                 checking = false
-                                remote.onSuccess { latest ->
-                                    updateStatus = if (isNewerVersion(latest, versionName)) {
-                                        "发现新版本 v$latest，请前往 $RELEASES_PAGE 下载"
+                                remote.onSuccess { json ->
+                                    releaseJson = json
+                                    val latest = runCatching {
+                                        JSONObject(json).getString("tag_name").removePrefix("v")
+                                    }.getOrDefault("?")
+                                    if (isNewerVersion(latest, versionName)) {
+                                        foundNewTag = latest
+                                        downloadedPath = null
+                                        updateStatus = "发现新版本 v$latest"
                                     } else {
-                                        "当前已是最新版本 v$versionName"
+                                        foundNewTag = null
+                                        updateStatus = "当前已是最新版本 v$versionName"
                                     }
                                 }.onFailure {
                                     Log.e("UpdateCheck", "检测更新失败", it)
