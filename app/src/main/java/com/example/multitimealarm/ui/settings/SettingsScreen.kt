@@ -559,46 +559,53 @@ fun SettingsScreen(
                     updateStatus?.let {
                         Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
                     }
-                    TextButton(
-                        onClick = {
-                            if (checking) return@TextButton
-                            checking = true
-                            updateStatus = "正在检测更新…"
-                            scope.launch {
-                                val remote = withContext(Dispatchers.IO) {
-                                    runCatching {
-                                        com.example.multitimealarm.util.UpdateDownloader.fetchLatestReleaseJson()
+                    Text(
+                        text = if (checking) "检测中…" else "检测更新",
+                        fontSize = 13.sp,
+                        color = if (checking) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (!checking) {
+                                    checking = true
+                                    updateStatus = "正在检测更新…"
+                                    scope.launch {
+                                        val remote = withContext(Dispatchers.IO) {
+                                            runCatching {
+                                                com.example.multitimealarm.util.UpdateDownloader.fetchLatestReleaseJson()
+                                            }
+                                        }
+                                        checking = false
+                                        remote.onSuccess { json ->
+                                            releaseJson = json
+                                            val latest = runCatching {
+                                                JSONObject(json).getString("tag_name").removePrefix("v")
+                                            }.getOrDefault("?")
+                                            if (isNewerVersion(latest, versionName)) {
+                                                foundNewTag = latest
+                                                downloadedPath = null
+                                                updateStatus = "发现新版本 v$latest"
+                                            } else {
+                                                foundNewTag = null
+                                                updateStatus = "当前已是最新版本 v$versionName"
+                                            }
+                                        }.onFailure {
+                                            Log.e("UpdateCheck", "检测更新失败", it)
+                                            val reason = it.message?.take(60) ?: "网络不可用"
+                                            updateStatus = "检测失败：$reason"
+                                        }
                                     }
                                 }
-                                checking = false
-                                remote.onSuccess { json ->
-                                    releaseJson = json
-                                    val latest = runCatching {
-                                        JSONObject(json).getString("tag_name").removePrefix("v")
-                                    }.getOrDefault("?")
-                                    if (isNewerVersion(latest, versionName)) {
-                                        foundNewTag = latest
-                                        downloadedPath = null
-                                        updateStatus = "发现新版本 v$latest"
-                                    } else {
-                                        foundNewTag = null
-                                        updateStatus = "当前已是最新版本 v$versionName"
-                                    }
-                                }.onFailure {
-                                    Log.e("UpdateCheck", "检测更新失败", it)
-                                    val reason = it.message?.take(60) ?: "网络不可用"
-                                    updateStatus = "检测失败：$reason"
-                                }
-                            }
-                        },
-                    ) {
-                        Text(if (checking) "检测中…" else "检测更新")
-                    }
+                            },
+                    )
                     Text(
                         text = "开源地址",
                         fontSize = 13.sp,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable {
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
                             runCatching {
                                 context.startActivity(
                                     Intent(Intent.ACTION_VIEW, Uri.parse(REPO_PAGE))
