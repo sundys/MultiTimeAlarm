@@ -532,19 +532,6 @@ fun SettingsScreen(
                         fontSize = 14.sp,
                     )
                     Text("当前版本：v$versionName", fontSize = 13.sp)
-                    Text(
-                        text = "开源地址：$REPO_PAGE",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable {
-                            runCatching {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(REPO_PAGE))
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                )
-                            }
-                        },
-                    )
                     if (foundNewTag != null) {
                         when {
                             downloading -> {
@@ -607,6 +594,19 @@ fun SettingsScreen(
                     ) {
                         Text(if (checking) "检测中…" else "检测更新")
                     }
+                    Text(
+                        text = "开源地址",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable {
+                            runCatching {
+                                context.startActivity(
+                                    Intent(Intent.ACTION_VIEW, Uri.parse(REPO_PAGE))
+                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                )
+                            }
+                        },
+                    )
                 }
             },
             confirmButton = {
