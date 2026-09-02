@@ -63,7 +63,7 @@ fun AlarmEditScreen(
     var name by remember { mutableStateOf("") }
     var type by remember { mutableStateOf(TaskType.DAILY) }
     var weekdaysMask by remember { mutableStateOf(AlarmTaskEntity.MASK_EVERY_DAY) }
-    var monthDayText by remember { mutableStateOf("1") }
+    var monthDaysText by remember { mutableStateOf("1") }
     var intervalHoursText by remember { mutableStateOf("2") }
     var intervalMinutesText by remember { mutableStateOf("0") }
     var dateEpochDay by remember { mutableStateOf<Long?>(null) }
@@ -84,7 +84,11 @@ fun AlarmEditScreen(
                 name = loaded.task.name
                 type = loaded.task.type
                 weekdaysMask = loaded.task.weekdaysMask
-                monthDayText = loaded.task.monthDay.takeIf { it in 1..31 }?.toString() ?: "1"
+                monthDaysText = com.example.multitimealarm.util.MonthDaysParser
+                    .toStorageString(
+                        com.example.multitimealarm.util.TimeUtils.effectiveMonthlyDays(loaded.task)
+                    )
+                    .ifEmpty { "1" }
                 intervalHoursText = (loaded.task.intervalMinutes / 60).toString()
                 intervalMinutesText = (loaded.task.intervalMinutes % 60).toString()
                 dateEpochDay = loaded.task.dateEpochDay
@@ -218,12 +222,14 @@ fun AlarmEditScreen(
                 }
             }
 
-            // 每月几号
+            // 每月多日期
             if (type == TaskType.MONTHLY) {
                 OutlinedTextField(
-                    value = monthDayText,
-                    onValueChange = { monthDayText = it.filter(Char::isDigit).take(2) },
-                    label = { Text("每月几号（1-31，无该日的月份自动跳过）") },
+                    value = monthDaysText,
+                    onValueChange = { monthDaysText = com.example.multitimealarm.util.MonthDaysParser.normalize(it).take(200) },
+                    label = { Text("每月提醒日期") },
+                    placeholder = { Text("如：1,3,9,25 或 1-15 或 2,4,8,21-26") },
+                    supportingText = { Text("多日期用英文逗号分隔，支持范围如 1-15（中文逗号自动转换）") },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                 )
@@ -372,7 +378,31 @@ fun AlarmEditScreen(
                     val snoozeMaxCount = snoozeMaxCountText.toIntOrNull()?.coerceIn(0, 99) ?: 3
                     val intervalMinutes =
                         (intervalHoursText.toIntOrNull() ?: 0) * 60L + (intervalMinutesText.toIntOrNull() ?: 0).toLong()
-                    val monthDay = monthDayText.toIntOrNull() ?: 0
+                    // 每月多日期：解析校验（全角已实时转换，此处再兜底转换）
+                    val monthDays = try {
+                        if (type == TaskType.MONTHLY)
+                            com.example.multitimealarm.util.MonthDaysParser.parse(monthDaysText)
+                        else emptyList()
+                    } catch (e: com.example.multitimealarm.util.MonthDaysParser.InvalidMonthDaysException) {
+                        errorText = e.message
+                        return@Button
+                    }
+                    // 已过日期检查：当月内早于今天的日期视为无效
+                    if (type == TaskType.MONTHLY) {
+                        val today = java.time.LocalDate.now()
+                        val maxDay = java.time.YearMonth.now().lengthOfMonth()
+                        val past = monthDays.filter { it < today.dayOfMonth }
+                        val notInMonth = monthDays.filter { it > maxDay }
+                        if (past.isNotEmpty()) {
+                            errorText = "日期 ${past.joinToString(",")} 已过期（今天 ${today.dayOfMonth} 号），请重新输入"
+                            return@Button
+                        }
+                        if (notInMonth.isNotEmpty()) {
+                            errorText = "本月只有 $maxDay 天，日期 ${notInMonth.joinToString(",")} 不存在，请重新输入"
+                            return@Button
+                        }
+                    }
+                    val monthDay = monthDays.firstOrNull() ?: 0
 
                     errorText = when {
                         times.isEmpty() ->
@@ -391,6 +421,8 @@ fun AlarmEditScreen(
                         type = type,
                         weekdaysMask = if (type == TaskType.WEEKLY) weekdaysMask else 0,
                         monthDay = if (type == TaskType.MONTHLY) monthDay else 0,
+                        monthDays = if (type == TaskType.MONTHLY)
+                            com.example.multitimealarm.util.MonthDaysParser.toStorageString(monthDays) else "",
                         intervalMinutes = if (type == TaskType.INTERVAL) intervalMinutes else 0,
                         dateEpochDay = if (type == TaskType.ONCE) dateEpochDay else null,
                         enabled = taskEnabled,

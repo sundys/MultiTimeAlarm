@@ -17,7 +17,7 @@ class Converters {
 
 @Database(
     entities = [AlarmTaskEntity::class, AlarmTimeEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
@@ -49,6 +49,13 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v5 -> v6：每月类型支持多日期 */
+        private val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE alarm_tasks ADD COLUMN monthDays TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         /** v4 -> v5：任务增加备注字段 */
         private val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
@@ -70,7 +77,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "multitime_alarm.db",
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .build()
                     .also { instance = it }
             }

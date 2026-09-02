@@ -80,6 +80,7 @@ class AlarmRepository(context: Context) {
             o.put("type", entry.task.type.name)
             o.put("weekdaysMask", entry.task.weekdaysMask)
             o.put("monthDay", entry.task.monthDay)
+            o.put("monthDays", entry.task.monthDays)
             o.put("intervalMinutes", entry.task.intervalMinutes)
             entry.task.dateEpochDay?.let { o.put("dateEpochDay", it) }
             o.put("enabled", entry.task.enabled)
@@ -127,6 +128,7 @@ class AlarmRepository(context: Context) {
                     .getOrDefault(TaskType.DAILY),
                 weekdaysMask = o.optInt("weekdaysMask", 0),
                 monthDay = o.optInt("monthDay", 0),
+                monthDays = o.optString("monthDays", ""),
                 intervalMinutes = o.optLong("intervalMinutes", 0),
                 dateEpochDay = if (o.has("dateEpochDay")) o.getLong("dateEpochDay") else null,
                 enabled = o.optBoolean("enabled", true),

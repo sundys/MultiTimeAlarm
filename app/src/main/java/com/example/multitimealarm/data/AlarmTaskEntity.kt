@@ -11,7 +11,7 @@ enum class TaskType { DAILY, WEEKLY, MONTHLY, INTERVAL, ONCE }
  *
  * 各类型的附加字段：
  * - WEEKLY：[weekdaysMask] 位掩码，bit0=周一 … bit6=周日
- * - MONTHLY：[monthDay] 每月几号（1-31，月份天数不足时跳过）
+ * - MONTHLY：[monthDays] 每月多个日期（如 1,3,9,25 或 1-15 组合）
  * - INTERVAL：[intervalMinutes] 间隔分钟数，时间点作为起始锚点
  * - ONCE：[dateEpochDay] 所有时间点共用的目标日期
  * - DAILY：无附加字段
@@ -25,6 +25,8 @@ data class AlarmTaskEntity(
     val type: TaskType = TaskType.DAILY,
     val weekdaysMask: Int = 0,
     val monthDay: Int = 0,
+    /** 每月多日期（逗号分隔升序，如 "1,3,9,25" 或 "2,4,21,22,23,24,25,26"）；为空时回退 monthDay 单日 */
+    val monthDays: String = "",
     val intervalMinutes: Long = 0,
     val dateEpochDay: Long? = null,
     val enabled: Boolean = true,

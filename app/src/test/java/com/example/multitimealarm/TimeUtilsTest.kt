@@ -22,12 +22,13 @@ class TimeUtilsTest {
         type: TaskType,
         weekdaysMask: Int = 0,
         monthDay: Int = 0,
+        monthDays: String = "",
         intervalMinutes: Long = 0,
         dateEpochDay: Long? = null,
         enabled: Boolean = true,
     ) = AlarmTaskEntity(
         id = 1, name = "t", type = type,
-        weekdaysMask = weekdaysMask, monthDay = monthDay,
+        weekdaysMask = weekdaysMask, monthDay = monthDay, monthDays = monthDays,
         intervalMinutes = intervalMinutes, dateEpochDay = dateEpochDay,
         enabled = enabled,
     )
@@ -113,7 +114,7 @@ class TimeUtilsTest {
     // 二.2 每月循环
     @Test
     fun `monthly next month when day passed`() {
-        val t = task(TaskType.MONTHLY, monthDay = 1)
+        val t = task(TaskType.MONTHLY, monthDays = "1")
         assertEquals(
             at(2026, 9, 1, 8, 0),
             TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 8, 29, 10, 0)),
@@ -123,10 +124,50 @@ class TimeUtilsTest {
     @Test
     fun `monthly skips months without the day`() {
         // 2月1日之后设每月31日：1月31日已过、2月无31日 -> 3月31日
-        val t = task(TaskType.MONTHLY, monthDay = 31)
+        val t = task(TaskType.MONTHLY, monthDays = "31")
         assertEquals(
             at(2026, 3, 31, 8, 0),
             TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 2, 1, 10, 0)),
+        )
+    }
+
+    // 每月多日期
+    @Test
+    fun `monthly multi days picks earliest upcoming in current month`() {
+        // 今天 8/29 10:00，日期 1,3,9,25 -> 9/1 为下月第一个
+        val t = task(TaskType.MONTHLY, monthDays = "1,3,9,25")
+        assertEquals(
+            at(2026, 9, 1, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 8, 29, 10, 0)),
+        )
+    }
+
+    @Test
+    fun `monthly multi days later this month first`() {
+        // 今天 8/29，日期 30,31 -> 8/30 08:00
+        val t = task(TaskType.MONTHLY, monthDays = "30,31")
+        assertEquals(
+            at(2026, 8, 30, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 8, 29, 10, 0)),
+        )
+    }
+
+    @Test
+    fun `monthly multi days rolls to next month after all passed`() {
+        // 今天 8/29 之后设 1,3 -> 下月 9/1
+        val t = task(TaskType.MONTHLY, monthDays = "1,3")
+        assertEquals(
+            at(2026, 9, 1, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 8, 29, 23, 0)),
+        )
+    }
+
+    @Test
+    fun `monthly falls back to single monthDay when monthDays empty`() {
+        val t = task(TaskType.MONTHLY, monthDay = 1)
+        assertEquals(
+            at(2026, 9, 1, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 8, 29, 10, 0)),
         )
     }
 

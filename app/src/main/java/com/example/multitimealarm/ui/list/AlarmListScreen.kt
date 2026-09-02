@@ -227,7 +227,10 @@ private fun typeText(item: TaskWithTimes): String = when (item.task.type) {
             if (days.isEmpty()) "未选星期" else "周$days"
         }
     }
-    TaskType.MONTHLY -> "每月${item.task.monthDay}日"
+    TaskType.MONTHLY -> {
+        val days = com.example.multitimealarm.util.TimeUtils.effectiveMonthlyDays(item.task)
+        if (days.isEmpty()) "每月（未设日期）" else "每月 ${days.joinToString(",")} 日"
+    }
     TaskType.INTERVAL -> {
         val total = item.task.intervalMinutes
         when {

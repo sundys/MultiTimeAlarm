@@ -5,6 +5,7 @@ import com.example.multitimealarm.data.AlarmTimeEntity
 import com.example.multitimealarm.data.TaskType
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.YearMonth
 import java.time.ZoneId
 import java.util.Calendar
 
@@ -31,7 +32,7 @@ object TimeUtils {
         return when (task.type) {
             TaskType.DAILY -> nextDaily(now, time)
             TaskType.WEEKLY -> nextWeekly(now, task.weekdaysMask, time)
-            TaskType.MONTHLY -> nextMonthly(now, task.monthDay, time)
+            TaskType.MONTHLY -> nextMonthly(now, task, time)
             TaskType.INTERVAL -> nextInterval(now, task.intervalMinutes, time)
             TaskType.ONCE -> nextOnce(now, task.dateEpochDay, time)
         }
@@ -72,16 +73,21 @@ object TimeUtils {
         return 1 shl bitIndex
     }
 
-    private fun nextMonthly(now: Long, monthDay: Int, time: AlarmTimeEntity): Long? {
-        if (monthDay !in 1..31) return null
+    private fun nextMonthly(now: Long, task: AlarmTaskEntity, time: AlarmTimeEntity): Long? {
+        val days = effectiveMonthlyDays(task)
+        if (days.isEmpty()) return null
         val zone = ZoneId.systemDefault()
         val start = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(now), zone)
         var year = start.year
         var month = start.monthValue
         repeat(48) { // 最多向后看 4 年
-            val date = runCatching { LocalDate.of(year, month, monthDay) }.getOrNull()
-            if (date != null) {
-                val triggerAt = date.atTime(time.hour, time.minute)
+            // 该月中最早的未过期日期
+            val day = days
+                .filter { it <= YearMonth.of(year, month).lengthOfMonth() }
+                .minOrNull()
+            if (day != null) {
+                val triggerAt = LocalDate.of(year, month, day)
+                    .atTime(time.hour, time.minute)
                     .atZone(zone).toInstant().toEpochMilli()
                 if (triggerAt > now) return triggerAt
             }
@@ -92,6 +98,12 @@ object TimeUtils {
             }
         }
         return null
+    }
+
+    /** 每月生效日期集合：monthDays 优先，为空回退旧单日字段 */
+    fun effectiveMonthlyDays(task: AlarmTaskEntity): List<Int> {
+        val days = MonthDaysParser.fromStorageString(task.monthDays)
+        return if (days.isNotEmpty()) days else listOf(task.monthDay).filter { it in 1..31 }
     }
 
     private fun nextInterval(now: Long, intervalMinutes: Long, time: AlarmTimeEntity): Long? {
