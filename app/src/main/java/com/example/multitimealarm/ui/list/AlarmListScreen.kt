@@ -35,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.multitimealarm.data.AlarmTaskEntity
@@ -179,7 +180,13 @@ private fun TaskCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 // 第一行：闹钟名称
-                Text(item.task.name, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = item.task.name,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Spacer(Modifier.height(6.dp))
                 // 第二行：下次响铃时间  类型  N个时间点
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -188,6 +195,9 @@ private fun TaskCard(
                         text = next ?: "已停止",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
                         color = if (next != null) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -227,10 +237,7 @@ private fun typeText(item: TaskWithTimes): String = when (item.task.type) {
             if (days.isEmpty()) "未选星期" else "周$days"
         }
     }
-    TaskType.MONTHLY -> {
-        val days = com.example.multitimealarm.util.TimeUtils.effectiveMonthlyDays(item.task)
-        if (days.isEmpty()) "每月（未设日期）" else "每月 ${days.joinToString(",")} 日"
-    }
+    TaskType.MONTHLY -> "每月"
     TaskType.INTERVAL -> {
         val total = item.task.intervalMinutes
         when {

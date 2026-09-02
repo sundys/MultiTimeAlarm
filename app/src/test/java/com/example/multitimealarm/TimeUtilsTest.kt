@@ -163,6 +163,27 @@ class TimeUtilsTest {
     }
 
     @Test
+    fun `monthly multi days triggered today rolls to next selected day`() {
+        // 今天 8/29 13:41 已过，日期 12,4,8,21-26 排序后最近的是 9/21（8/29 当天无更早未过期日）
+        val t = task(TaskType.MONTHLY, monthDays = "21-26,12,4,8")
+        // 8/29 13:41 之后：8 月剩余 29-31 均不在集合中，下一个是 9/21 13:41
+        assertEquals(
+            at(2026, 9, 4, 13, 41),
+            TimeUtils.nextTriggerAt(t, time(13, 41), now = at(2026, 8, 29, 13, 41)),
+        )
+    }
+
+    @Test
+    fun `monthly multi days same day later time still valid`() {
+        // 今天 8/29 10:00，日期集合含 29 且时间为 13:41 -> 今天 13:41 仍有效
+        val t = task(TaskType.MONTHLY, monthDays = "29,15")
+        assertEquals(
+            at(2026, 8, 29, 13, 41),
+            TimeUtils.nextTriggerAt(t, time(13, 41), now = at(2026, 8, 29, 10, 0)),
+        )
+    }
+
+    @Test
     fun `monthly falls back to single monthDay when monthDays empty`() {
         val t = task(TaskType.MONTHLY, monthDay = 1)
         assertEquals(

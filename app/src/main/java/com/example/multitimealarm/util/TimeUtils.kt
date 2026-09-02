@@ -81,16 +81,16 @@ object TimeUtils {
         var year = start.year
         var month = start.monthValue
         repeat(48) { // 最多向后看 4 年
-            // 该月中最早的未过期日期
-            val day = days
-                .filter { it <= YearMonth.of(year, month).lengthOfMonth() }
-                .minOrNull()
-            if (day != null) {
-                val triggerAt = LocalDate.of(year, month, day)
-                    .atTime(time.hour, time.minute)
-                    .atZone(zone).toInstant().toEpochMilli()
-                if (triggerAt > now) return triggerAt
-            }
+            // 当月全部候选时刻中，取晚于 now 的最早一个；当月已全部过期则看下月
+            val maxDay = YearMonth.of(year, month).lengthOfMonth()
+            val upcoming = days
+                .filter { it in 1..maxDay }
+                .map { d ->
+                    LocalDate.of(year, month, d).atTime(time.hour, time.minute, 0)
+                        .atZone(zone).toInstant().toEpochMilli()
+                }
+                .filter { it > now }
+            if (upcoming.isNotEmpty()) return upcoming.min()
             month += 1
             if (month > 12) {
                 month = 1
