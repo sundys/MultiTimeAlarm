@@ -42,8 +42,6 @@ import com.example.multitimealarm.data.AlarmTaskEntity
 import com.example.multitimealarm.data.TaskType
 import com.example.multitimealarm.data.TaskWithTimes
 import com.example.multitimealarm.ui.AlarmViewModel
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 /** 闹钟 Tab：展示所有循环闹钟任务 */
 @Composable
@@ -246,13 +244,8 @@ private fun typeText(item: TaskWithTimes): String = when (item.task.type) {
             else -> "每${total / 60}时${total % 60}分"
         }
     }
-    TaskType.ONCE -> {
-        val dateText = item.task.dateEpochDay
-            ?.let { LocalDate.ofEpochDay(it).format(DateTimeFormatter.ofPattern("M月d日")) }
-            ?: "未设日期"
-        "仅一次 $dateText"
+    TaskType.ONCE -> "仅一次"
     }
-}
 
 /** 小憩倒计时选择对话框 */
 @Composable

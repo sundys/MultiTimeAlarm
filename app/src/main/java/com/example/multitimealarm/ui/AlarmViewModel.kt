@@ -105,7 +105,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
             val next = taskWithTimes.times
                 .mapNotNull { TimeUtils.nextTriggerAt(taskWithTimes.task, it) }
                 .minOrNull() ?: return null
-            return android.text.format.DateFormat.format("MM-dd HH:mm", next).toString()
+            return android.text.format.DateFormat.format("M月d日 HH:mm", next).toString()
         }
     }
 }
