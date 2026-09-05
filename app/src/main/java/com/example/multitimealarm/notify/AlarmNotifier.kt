@@ -45,7 +45,7 @@ object AlarmNotifier {
         ensureChannel(context)
         com.example.multitimealarm.ring.RingService.start(
             context,
-            time.copy(snoozeCount = time.snoozeCount),
+            time,
             task,
             time.snoozeCount,
         )

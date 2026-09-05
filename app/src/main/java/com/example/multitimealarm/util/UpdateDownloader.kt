@@ -86,6 +86,7 @@ object UpdateDownloader {
         )
         var lastError: Exception? = null
         for (url in urls) {
+            var insertedUri: Uri? = null
             try {
                 val conn = open(url, 10000, 60000)
                 val total = conn.contentLengthLong
@@ -99,6 +100,7 @@ object UpdateDownloader {
                         val uri = resolver.insert(
                             MediaStore.Downloads.EXTERNAL_CONTENT_URI, values
                         ) ?: throw IllegalStateException("无法创建下载文件")
+                        insertedUri = uri
                         resolver.openOutputStream(uri)?.use { out ->
                             copyWithProgress(input, out, total, onProgress)
                         } ?: throw IllegalStateException("无法打开输出流")
@@ -114,6 +116,10 @@ object UpdateDownloader {
                     }
                 }
             } catch (e: Exception) {
+                // 中途失败删除半截文件，避免换镜像重试后 Download 目录堆积残留
+                insertedUri?.let {
+                    runCatching { context.contentResolver.delete(it, null, null) }
+                }
                 lastError = e
             }
         }

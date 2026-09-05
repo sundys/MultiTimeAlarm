@@ -40,7 +40,7 @@ fun NumberPickerColumn(
     count: Int,
     onValueChange: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    label: (Int) -> String = { String.format("%02d", it) },
+    label: (Int) -> String = { String.format(java.util.Locale.US, "%02d", it) },
     circular: Boolean = false,
 ) {
     val listState = rememberLazyListState()

@@ -150,10 +150,13 @@ fun SettingsScreen(
         if (uri != null) {
             scope.launch {
                 runCatching {
-                    val json = onExportJson()
-                    context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
-                        out.write(json.toByteArray(Charsets.UTF_8))
-                    } ?: throw IllegalStateException("无法写入文件")
+                    // JSON 构建 + 文件读写全部放 IO 线程，避免大文件卡主线程
+                    withContext(Dispatchers.IO) {
+                        val json = onExportJson()
+                        context.contentResolver.openOutputStream(uri, "wt")?.use { out ->
+                            out.write(json.toByteArray(Charsets.UTF_8))
+                        } ?: throw IllegalStateException("无法写入文件")
+                    }
                 }.onSuccess { statusText = "备份成功" }
                     .onFailure { statusText = "备份失败：${it.message}" }
             }
@@ -165,9 +168,11 @@ fun SettingsScreen(
         if (uri != null) {
             scope.launch {
                 runCatching {
-                    context.contentResolver.openInputStream(uri)?.use { input ->
-                        input.readBytes().toString(Charsets.UTF_8)
-                    } ?: throw IllegalStateException("无法读取文件")
+                    withContext(Dispatchers.IO) {
+                        context.contentResolver.openInputStream(uri)?.use { input ->
+                            input.readBytes().toString(Charsets.UTF_8)
+                        } ?: throw IllegalStateException("无法读取文件")
+                    }
                 }.onSuccess { json -> pendingRestoreJson = json }
                     .onFailure { statusText = "读取备份失败：${it.message}" }
             }

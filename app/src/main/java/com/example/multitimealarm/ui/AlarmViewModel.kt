@@ -1,6 +1,7 @@
 package com.example.multitimealarm.ui
 
 import android.app.Application
+import android.text.format.DateFormat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.multitimealarm.MultiTimeAlarmApp
@@ -9,26 +10,54 @@ import com.example.multitimealarm.data.AlarmTaskEntity
 import com.example.multitimealarm.data.AlarmTimeEntity
 import com.example.multitimealarm.data.TaskWithTimes
 import com.example.multitimealarm.util.TimeUtils
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/** 列表页 UI 模型：任务数据 + 预计算好的下次响铃时刻与文本（后台线程一次算好，渲染时直接用） */
+data class TaskListItem(val data: TaskWithTimes, val next: Long?, val nextText: String?)
 
 class AlarmViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = AlarmRepository(application)
 
-    /** 闹钟列表：按下一次响铃时间升序（多时间点取最早的一个，无未来触发的排最后） */
-    val tasks: StateFlow<List<TaskWithTimes>> = repository.observeAllTasks()
-        .map { list ->
-            list.sortedBy { item ->
-                item.times
-                    .mapNotNull { time -> TimeUtils.nextTriggerAt(item.task, time) }
-                    .minOrNull() ?: Long.MAX_VALUE
+    /**
+     * 乐观开关覆盖层：点击先翻 UI，数据库写入并重发射后自动收敛。
+     * 条目不主动清除——当覆盖值与库中一致时自然失效，
+     * 避免 Flow 重发射到达前移除覆盖导致开关闪回旧值。
+     */
+    private val pendingEnabled = MutableStateFlow<Map<Long, Boolean>>(emptyMap())
+
+    /** 闹钟列表：启用中按下一次响铃时间升序，已停止沉底；排序与文本计算在后台线程 */
+    val tasks: StateFlow<List<TaskListItem>> =
+        combine(repository.observeAllTasks(), pendingEnabled) { list, pending ->
+            list.map { entry ->
+                pending[entry.task.id]
+                    ?.takeIf { it != entry.task.enabled }
+                    ?.let { entry.copy(task = entry.task.copy(enabled = it)) }
+                    ?: entry
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+            .map { list ->
+                list.map { entry ->
+                    val next = entry.times
+                        .mapNotNull { time -> TimeUtils.nextTriggerAt(entry.task, time) }
+                        .minOrNull()
+                    TaskListItem(entry, next, next?.let { formatNextText(it) })
+                }.sortedWith(
+                    compareBy<TaskListItem> { !it.data.task.enabled }
+                        .thenBy { it.next ?: Long.MAX_VALUE }
+                )
+            }
+            .flowOn(Dispatchers.Default)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     suspend fun loadTask(taskId: Long): TaskWithTimes? =
         repository.getTaskWithTimes(taskId)
@@ -44,6 +73,7 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setTaskEnabled(taskId: Long, enabled: Boolean) {
+        pendingEnabled.update { it + (taskId to enabled) }
         viewModelScope.launch { repository.setTaskEnabled(taskId, enabled) }
     }
 
@@ -99,13 +129,9 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    companion object {
-        /** 列表页展示：任务的下一次响铃描述（空 = 无未来提醒） */
-        fun nextAlarmText(taskWithTimes: TaskWithTimes): String? {
-            val next = taskWithTimes.times
-                .mapNotNull { TimeUtils.nextTriggerAt(taskWithTimes.task, it) }
-                .minOrNull() ?: return null
-            return android.text.format.DateFormat.format("M月d日 HH:mm", next).toString()
-        }
+    private companion object {
+        /** 下一次响铃的展示格式：9月4日 13:41 */
+        fun formatNextText(triggerAt: Long): String =
+            DateFormat.format("M月d日 HH:mm", triggerAt).toString()
     }
 }

@@ -108,11 +108,11 @@ object TimeUtils {
 
     private fun nextInterval(now: Long, intervalMinutes: Long, time: AlarmTimeEntity): Long? {
         if (intervalMinutes <= 0) return null
-        var anchor = calendarAt(now, time).timeInMillis
-        while (anchor <= now) {
-            anchor += intervalMinutes * 60_000L
-        }
-        return anchor
+        val step = intervalMinutes * 60_000L
+        val anchor = calendarAt(now, time).timeInMillis
+        if (anchor > now) return anchor
+        // 取模一步跳过已过去的整周期，避免锚点久远时循环累加
+        return anchor + ((now - anchor) / step + 1) * step
     }
 
     private fun nextOnce(now: Long, dateEpochDay: Long?, time: AlarmTimeEntity): Long? {

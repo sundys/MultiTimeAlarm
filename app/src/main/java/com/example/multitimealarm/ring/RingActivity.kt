@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -43,6 +44,8 @@ import java.time.format.DateTimeFormatter
 /**
  * 响铃页：锁屏全屏弹出。铃声与振动由 RingService 前台服务承载，
  * 本页仅展示 UI 与关闭/贪睡操作。
+ *
+ * launchMode=singleInstance：连续两次闹钟时通过 onNewIntent 刷新页面内容。
  */
 class RingActivity : ComponentActivity() {
 
@@ -70,47 +73,83 @@ class RingActivity : ComponentActivity() {
         }
     }
 
+    /** 当前展示的响铃信息（可变状态：onNewIntent 覆盖） */
+    private var ringInfo by mutableStateOf(
+        RingInfo(
+            timeId = -1L,
+            taskName = "",
+            snoozeMinutes = 5,
+            snoozeMaxCount = 3,
+            snoozeCount = 0,
+        )
+    )
+
+    private data class RingInfo(
+        val timeId: Long,
+        val taskName: String,
+        val snoozeMinutes: Int,
+        val snoozeMaxCount: Int,
+        val snoozeCount: Int,
+    )
+
+    private fun readRingInfo(intent: Intent?): RingInfo = RingInfo(
+        timeId = intent?.getLongExtra(EXTRA_TIME_ID, -1L) ?: -1L,
+        taskName = intent?.getStringExtra(EXTRA_TASK_NAME).orEmpty(),
+        snoozeMinutes = intent?.getIntExtra(EXTRA_SNOOZE_MINUTES, 5) ?: 5,
+        snoozeMaxCount = intent?.getIntExtra(EXTRA_SNOOZE_MAX_COUNT, 3) ?: 3,
+        snoozeCount = intent?.getIntExtra(EXTRA_SNOOZE_COUNT, 0) ?: 0,
+    )
+
+    /** 从通知点入而服务已超时停止时，重新开始响铃 */
+    private fun ensureRinging(info: RingInfo) {
+        if (!RingService.isRinging && info.timeId > 0) {
+            RingService.start(this, info.timeId, info.taskName, info.snoozeMinutes, info.snoozeMaxCount, info.snoozeCount)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             setTurnScreenOn(true)
         }
         AlarmNotifier.cancel(this)
+        ringInfo = readRingInfo(intent)
+        ensureRinging(ringInfo)
 
-        val timeId = intent.getLongExtra(EXTRA_TIME_ID, -1L)
-        val taskName = intent.getStringExtra(EXTRA_TASK_NAME).orEmpty()
-        val snoozeMinutes = intent.getIntExtra(EXTRA_SNOOZE_MINUTES, 5)
-        val snoozeMaxCount = intent.getIntExtra(EXTRA_SNOOZE_MAX_COUNT, 3)
-        val snoozeCount = intent.getIntExtra(EXTRA_SNOOZE_COUNT, 0)
+        setContent { RingPage() }
+    }
 
-        // 从通知点入而服务已超时停止时，重新开始响铃
-        if (!RingService.isRinging && timeId > 0) {
-            RingService.start(this, timeId, taskName, snoozeMinutes, snoozeMaxCount, snoozeCount)
-        }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        ringInfo = readRingInfo(intent)
+        ensureRinging(ringInfo)
+    }
 
-        setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
-                    RingScreen(
-                        taskName = taskName,
-                        snoozeMinutes = snoozeMinutes,
-                        snoozeAvailable = snoozeMaxCount == 0 || snoozeCount < snoozeMaxCount,
-                        snoozeHint = if (snoozeMaxCount == 0) {
-                            "第 ${snoozeCount + 1} 次"
-                        } else {
-                            "剩余 ${snoozeMaxCount - snoozeCount} 次"
-                        },
-                        onDismiss = {
-                            RingService.stop(this)
-                            finish()
-                        },
-                        onSnooze = {
-                            if (timeId > 0) snooze(timeId, snoozeMinutes, snoozeCount)
-                            RingService.stop(this)
-                            finish()
-                        },
-                    )
-                }
+    @Composable
+    private fun RingPage() {
+        val info = ringInfo
+        MaterialTheme {
+            Surface(modifier = Modifier.fillMaxSize(), color = Color.Black) {
+                RingScreen(
+                    taskName = info.taskName,
+                    snoozeMinutes = info.snoozeMinutes,
+                    snoozeAvailable = info.snoozeMaxCount == 0 || info.snoozeCount < info.snoozeMaxCount,
+                    snoozeHint = if (info.snoozeMaxCount == 0) {
+                        "第 ${info.snoozeCount + 1} 次"
+                    } else {
+                        "剩余 ${info.snoozeMaxCount - info.snoozeCount} 次"
+                    },
+                    onDismiss = {
+                        RingService.stop(this)
+                        finish()
+                    },
+                    onSnooze = {
+                        if (info.timeId > 0) snooze(info.timeId, info.snoozeMinutes, info.snoozeCount)
+                        RingService.stop(this)
+                        finish()
+                    },
+                )
             }
         }
     }
@@ -183,7 +222,7 @@ private fun RingScreen(
                     .fillMaxWidth()
                     .height(56.dp),
             ) {
-                Text("再等 $snoozeMinutes 分钟", fontSize = 18.sp, color = Color.White)
+                Text("再等 $snoozeMinutes 分钟（$snoozeHint）", fontSize = 18.sp, color = Color.White)
             }
         }
     }

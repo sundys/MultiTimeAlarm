@@ -31,6 +31,9 @@ object AlarmScheduler {
     /** 贪睡槽位偏移：与主闹钟区分，避免覆盖 DAILY 已续订的下一次闹钟 */
     private const val SNOOZE_REQUEST_OFFSET = 1_000_000
 
+    /** 进程内全量重调度标记：开机广播与 Application.onCreate 都会触发，只执行一次 */
+    private val fullRescheduleDone = java.util.concurrent.atomic.AtomicBoolean(false)
+
     /** 重新调度一个任务的所有时间点，并顺手清理已过期的一次性时间点 */
     suspend fun rescheduleTask(context: Context, taskId: Long) {
         val dao = AppDatabase.getInstance(context).alarmDao()
@@ -51,11 +54,17 @@ object AlarmScheduler {
         }
     }
 
-    /** 开机后全量重调度所有已启用任务 */
+    /** 开机后/进程冷启动后全量重调度所有已启用任务（同进程内只执行一次，失败可重试） */
     suspend fun rescheduleAll(context: Context) {
-        val dao = AppDatabase.getInstance(context).alarmDao()
-        for (task in dao.getEnabledTasks()) {
-            rescheduleTask(context, task.task.id)
+        if (!fullRescheduleDone.compareAndSet(false, true)) return
+        try {
+            val dao = AppDatabase.getInstance(context).alarmDao()
+            for (task in dao.getEnabledTasks()) {
+                rescheduleTask(context, task.task.id)
+            }
+        } catch (e: Exception) {
+            fullRescheduleDone.set(false) // 失败放开，允许 BOOT 广播或下次启动重试
+            throw e
         }
     }
 

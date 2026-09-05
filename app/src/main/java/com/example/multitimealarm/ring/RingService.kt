@@ -158,6 +158,7 @@ class RingService : Service() {
         val alarmUri = com.example.multitimealarm.util.RingtoneStore.resolveUri(this)
         if (alarmUri != null) {
             try {
+                // prepareAsync 异步准备，避免主线程阻塞；就绪后自动开始播放
                 mediaPlayer = MediaPlayer().apply {
                     setDataSource(this@RingService, alarmUri)
                     setAudioAttributes(
@@ -167,14 +168,15 @@ class RingService : Service() {
                             .build()
                     )
                     isLooping = true
-                    prepare()
-                    start()
+                    setOnPreparedListener { it.start() }
+                    setOnErrorListener { _, _, _ -> true }
+                    prepareAsync()
                 }
             } catch (_: Exception) {
             }
         }
         // 静音设置或铃声不可用时仅振动
-        vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        vibrator = resolveVibrator()
         vibrator?.let { v ->
             val pattern = longArrayOf(0, 600, 400)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -185,6 +187,15 @@ class RingService : Service() {
             }
         }
     }
+
+    private fun resolveVibrator(): Vibrator? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager)
+                ?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        }
 
     private fun stopRing() {
         handler.removeCallbacks(timeoutRunnable)

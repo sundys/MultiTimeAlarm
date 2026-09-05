@@ -52,6 +52,17 @@ private data class TimeRow(val id: Long, val hour: Int, val minute: Int, val sec
 
 private val WEEKDAY_LABELS = listOf("一", "二", "三", "四", "五", "六", "日")
 
+/** 仅一次：所选日期的全部时间点是否都已过去（过去则保存即失效，不允许） */
+private fun isOnceFullyPast(dateEpochDay: Long, times: List<TimeRow>): Boolean {
+    val date = java.time.LocalDate.ofEpochDay(dateEpochDay)
+    val zone = java.time.ZoneId.systemDefault()
+    val now = System.currentTimeMillis()
+    return times.all { row ->
+        date.atTime(row.hour, row.minute, row.second)
+            .atZone(zone).toInstant().toEpochMilli() <= now
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AlarmEditScreen(
@@ -300,8 +311,8 @@ fun AlarmEditScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = if (row.second == 0) String.format("%02d:%02d", row.hour, row.minute)
-                        else String.format("%02d:%02d:%02d", row.hour, row.minute, row.second),
+                        text = if (row.second == 0) String.format(java.util.Locale.US, "%02d:%02d", row.hour, row.minute)
+                        else String.format(java.util.Locale.US, "%02d:%02d:%02d", row.hour, row.minute, row.second),
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier
@@ -411,6 +422,8 @@ fun AlarmEditScreen(
                         type == TaskType.MONTHLY && monthDay !in 1..31 -> "每月几号需在 1-31 之间"
                         type == TaskType.INTERVAL && intervalMinutes <= 0 -> "间隔时间必须大于 0 分钟"
                         type == TaskType.ONCE && dateEpochDay == null -> "请选择提醒日期"
+                        type == TaskType.ONCE && dateEpochDay?.let { isOnceFullyPast(it, times) } == true ->
+                            "所选日期的时间点都已过去，请重新选择日期或时间"
                         else -> null
                     }
                     if (errorText != null) return@Button
@@ -571,7 +584,7 @@ fun AlarmEditScreen(
                             value = pickedYearOffset, count = yearCount,
                             onValueChange = { pickedYearOffset = it },
                             modifier = Modifier.width(76.dp),
-                            label = { String.format("%04d", yearBase + it) },
+                            label = { String.format(java.util.Locale.US, "%04d", yearBase + it) },
                             circular = true,
                         )
                         Text("年", fontSize = 13.sp)
@@ -582,7 +595,7 @@ fun AlarmEditScreen(
                             value = pickedMonth - 1, count = 12,
                             onValueChange = { pickedMonth = it + 1 },
                             modifier = Modifier.width(64.dp),
-                            label = { String.format("%02d", it + 1) },
+                            label = { String.format(java.util.Locale.US, "%02d", it + 1) },
                             circular = true,
                         )
                         Text("月", fontSize = 13.sp)
@@ -593,7 +606,7 @@ fun AlarmEditScreen(
                             value = pickedDay - 1, count = monthLen,
                             onValueChange = { pickedDay = it + 1 },
                             modifier = Modifier.width(64.dp),
-                            label = { String.format("%02d", it + 1) },
+                            label = { String.format(java.util.Locale.US, "%02d", it + 1) },
                             circular = true,
                         )
                         Text("日", fontSize = 13.sp)

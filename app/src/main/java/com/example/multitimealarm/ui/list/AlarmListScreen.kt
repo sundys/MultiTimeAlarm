@@ -18,7 +18,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -31,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -38,18 +38,54 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.multitimealarm.data.AlarmTaskEntity
-import com.example.multitimealarm.data.TaskType
 import com.example.multitimealarm.data.TaskWithTimes
-import com.example.multitimealarm.ui.AlarmViewModel
+import com.example.multitimealarm.ui.TaskListItem
 
 /** 闹钟 Tab：展示所有循环闹钟任务 */
 @Composable
 fun AlarmListPage(
-    tasks: List<TaskWithTimes>,
+    tasks: List<TaskListItem>,
     onScrollingChanged: (Boolean) -> Unit,
     onToggleTask: (Long, Boolean) -> Unit,
-    onToggleTime: (Long, Boolean) -> Unit,
+    onDeleteTask: (Long) -> Unit,
+    onEditTask: (Long) -> Unit,
+) {
+    TaskListContent(
+        tasks = tasks,
+        emptyHint = "还没有闹钟\n点击右下角 + 新建闹钟，一个闹钟可设置多个提醒时间",
+        onScrollingChanged = onScrollingChanged,
+        onToggleTask = onToggleTask,
+        onDeleteTask = onDeleteTask,
+        onEditTask = onEditTask,
+    )
+}
+
+/** 小憩 Tab：展示小憩条目 */
+@Composable
+fun NapListPage(
+    naps: List<TaskListItem>,
+    onScrollingChanged: (Boolean) -> Unit,
+    onDeleteTask: (Long) -> Unit,
+    onEditTask: (Long) -> Unit,
+    onToggleTask: (Long, Boolean) -> Unit,
+) {
+    TaskListContent(
+        tasks = naps,
+        emptyHint = "还没有小憩\n点击右下角 + 定时 N 分钟后响铃",
+        onScrollingChanged = onScrollingChanged,
+        onToggleTask = onToggleTask,
+        onDeleteTask = onDeleteTask,
+        onEditTask = onEditTask,
+    )
+}
+
+/** 列表公共实现：启用中的置顶，已停止的折叠沉底 */
+@Composable
+private fun TaskListContent(
+    tasks: List<TaskListItem>,
+    emptyHint: String,
+    onScrollingChanged: (Boolean) -> Unit,
+    onToggleTask: (Long, Boolean) -> Unit,
     onDeleteTask: (Long) -> Unit,
     onEditTask: (Long) -> Unit,
 ) {
@@ -58,33 +94,56 @@ fun AlarmListPage(
         onScrollingChanged(listState.isScrollInProgress)
     }
 
-    var deleteTarget by remember { mutableStateOf<TaskWithTimes?>(null) }
+    var deleteTarget by remember { mutableStateOf<TaskListItem?>(null) }
+    // 已停止分组默认折叠
+    var disabledExpanded by rememberSaveable { mutableStateOf(false) }
 
     if (tasks.isEmpty()) {
-        EmptyHint("还没有闹钟\n点击右下角 + 新建闹钟，一个闹钟可设置多个提醒时间")
+        EmptyHint(emptyHint)
     } else {
+        val enabled = tasks.filter { it.data.task.enabled }
+        val disabled = tasks.filterNot { it.data.task.enabled }
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(tasks, key = { it.task.id }) { item ->
+            items(enabled, key = { "t${it.data.task.id}" }) { item ->
                 TaskCard(
                     item = item,
                     onToggleTask = onToggleTask,
-                    onEdit = { onEditTask(item.task.id) },
+                    onEdit = { onEditTask(item.data.task.id) },
                     onLongPress = { deleteTarget = item },
                 )
+            }
+            if (disabled.isNotEmpty()) {
+                item(key = "disabled_header") {
+                    DisabledGroupHeader(
+                        count = disabled.size,
+                        expanded = disabledExpanded,
+                        onClick = { disabledExpanded = !disabledExpanded },
+                    )
+                }
+                if (disabledExpanded) {
+                    items(disabled, key = { "t${it.data.task.id}" }) { item ->
+                        TaskCard(
+                            item = item,
+                            onToggleTask = onToggleTask,
+                            onEdit = { onEditTask(item.data.task.id) },
+                            onLongPress = { deleteTarget = item },
+                        )
+                    }
+                }
             }
         }
     }
 
     deleteTarget?.let { target ->
         DeleteConfirmDialog(
-            name = target.task.name,
+            name = target.data.task.name,
             onConfirm = {
-                onDeleteTask(target.task.id)
+                onDeleteTask(target.data.task.id)
                 deleteTarget = null
             },
             onDismiss = { deleteTarget = null },
@@ -92,51 +151,24 @@ fun AlarmListPage(
     }
 }
 
-/** 小憩 Tab：展示小憩条目 */
+/** 已停止分组折叠头：显示数量与展开/收起操作 */
 @Composable
-fun NapListPage(
-    naps: List<TaskWithTimes>,
-    onScrollingChanged: (Boolean) -> Unit,
-    onDeleteTask: (Long) -> Unit,
-    onEditTask: (Long) -> Unit,
-    onToggleTask: (Long, Boolean) -> Unit,
-) {
-    val listState = rememberLazyListState()
-    LaunchedEffect(listState.isScrollInProgress) {
-        onScrollingChanged(listState.isScrollInProgress)
-    }
-
-    var deleteTarget by remember { mutableStateOf<TaskWithTimes?>(null) }
-
-    if (naps.isEmpty()) {
-        EmptyHint("还没有小憩\n点击右下角 + 定时 N 分钟后响铃")
-    } else {
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            items(naps, key = { it.task.id }) { item ->
-                TaskCard(
-                    item = item,
-                    onToggleTask = onToggleTask,
-                    onEdit = { onEditTask(item.task.id) },
-                    onLongPress = { deleteTarget = item },
-                )
-            }
-        }
-    }
-
-    deleteTarget?.let { target ->
-        DeleteConfirmDialog(
-            name = target.task.name,
-            onConfirm = {
-                onDeleteTask(target.task.id)
-                deleteTarget = null
-            },
-            onDismiss = { deleteTarget = null },
+private fun DisabledGroupHeader(count: Int, expanded: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "已停止（$count）",
+            fontSize = 13.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
         )
+        TextButton(onClick = onClick) {
+            Text(if (expanded) "收起" else "展开", fontSize = 13.sp)
+        }
     }
 }
 
@@ -160,11 +192,12 @@ private fun EmptyHint(text: String) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TaskCard(
-    item: TaskWithTimes,
+    item: TaskListItem,
     onToggleTask: (Long, Boolean) -> Unit,
     onEdit: () -> Unit,
     onLongPress: () -> Unit,
 ) {
+    val task = item.data.task
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -179,7 +212,7 @@ private fun TaskCard(
             Column(modifier = Modifier.weight(1f)) {
                 // 第一行：闹钟名称
                 Text(
-                    text = item.task.name,
+                    text = task.name,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
@@ -188,26 +221,25 @@ private fun TaskCard(
                 Spacer(Modifier.height(6.dp))
                 // 第二行：下次响铃时间  类型  N个时间点
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    val next = AlarmViewModel.nextAlarmText(item)
                     Text(
-                        text = next ?: "已停止",
+                        text = item.nextText ?: "已停止",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
-                        color = if (next != null) MaterialTheme.colorScheme.primary
+                        color = if (item.nextText != null) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        text = typeText(item),
+                        text = typeText(item.data),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.width(10.dp))
                     Text(
-                        text = "${item.times.size}个时间点",
+                        text = "${item.data.times.size}个时间点",
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -215,19 +247,19 @@ private fun TaskCard(
             }
             Spacer(Modifier.width(8.dp))
             Switch(
-                checked = item.task.enabled,
-                onCheckedChange = { onToggleTask(item.task.id, it) },
+                checked = task.enabled,
+                onCheckedChange = { onToggleTask(task.id, it) },
             )
         }
     }
 }
 
 private fun typeText(item: TaskWithTimes): String = when (item.task.type) {
-    TaskType.DAILY -> "每天"
-    TaskType.WEEKLY -> when (item.task.weekdaysMask) {
-        AlarmTaskEntity.MASK_EVERY_DAY -> "每天"
-        AlarmTaskEntity.MASK_WEEKDAYS -> "工作日"
-        AlarmTaskEntity.MASK_WEEKEND -> "周末"
+    com.example.multitimealarm.data.TaskType.DAILY -> "每天"
+    com.example.multitimealarm.data.TaskType.WEEKLY -> when (item.task.weekdaysMask) {
+        com.example.multitimealarm.data.AlarmTaskEntity.MASK_EVERY_DAY -> "每天"
+        com.example.multitimealarm.data.AlarmTaskEntity.MASK_WEEKDAYS -> "工作日"
+        com.example.multitimealarm.data.AlarmTaskEntity.MASK_WEEKEND -> "周末"
         else -> {
             val labels = listOf("一", "二", "三", "四", "五", "六", "日")
             val days = (0..6).filter { item.task.weekdaysMask and (1 shl it) != 0 }
@@ -235,8 +267,8 @@ private fun typeText(item: TaskWithTimes): String = when (item.task.type) {
             if (days.isEmpty()) "未选星期" else "周$days"
         }
     }
-    TaskType.MONTHLY -> "每月"
-    TaskType.INTERVAL -> {
+    com.example.multitimealarm.data.TaskType.MONTHLY -> "每月"
+    com.example.multitimealarm.data.TaskType.INTERVAL -> {
         val total = item.task.intervalMinutes
         when {
             total >= 60L && total % 60L == 0L -> "每${total / 60}小时"
@@ -244,8 +276,8 @@ private fun typeText(item: TaskWithTimes): String = when (item.task.type) {
             else -> "每${total / 60}时${total % 60}分"
         }
     }
-    TaskType.ONCE -> "仅一次"
-    }
+    com.example.multitimealarm.data.TaskType.ONCE -> "仅一次"
+}
 
 /** 小憩倒计时选择对话框 */
 @Composable

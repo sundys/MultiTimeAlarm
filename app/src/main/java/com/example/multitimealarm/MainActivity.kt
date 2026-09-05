@@ -93,6 +93,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+/** 系统栏底色：statusBarColor 自 API 35 起废弃，targetSdk 34 下仍生效，集中一处便于将来迁移 */
+@Suppress("DEPRECATION")
+private fun applySystemBarColor(window: android.view.Window, dark: Boolean) {
+    val color = if (dark) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+    window.statusBarColor = color
+    window.navigationBarColor = color
+}
+
 /** 主题包装：按用户设置（跟随系统/浅色/暗色）选择配色 */
 @Composable
 private fun MultiTimeAlarmTheme(content: @Composable () -> Unit) {
@@ -116,9 +124,7 @@ private fun MultiTimeAlarmTheme(content: @Composable () -> Unit) {
                 val controller = WindowCompat.getInsetsController(window, view)
                 controller.isAppearanceLightStatusBars = !dark
                 controller.isAppearanceLightNavigationBars = !dark
-                val barColor = if (dark) android.graphics.Color.BLACK else android.graphics.Color.WHITE
-                window.statusBarColor = barColor
-                window.navigationBarColor = barColor
+                applySystemBarColor(window, dark)
             }
         }
     }
@@ -147,8 +153,8 @@ private fun AlarmApp(
     val editingTaskId = remember { MutableStateFlow<Long?>(null) }
     val editing by editingTaskId.collectAsState()
     val allTasks by viewModel.tasks.collectAsState()
-    val alarmTasks = allTasks.filter { !it.task.isNap }
-    val napTasks = allTasks.filter { it.task.isNap }
+    val alarmTasks = allTasks.filter { !it.data.task.isNap }
+    val napTasks = allTasks.filter { it.data.task.isNap }
 
     var showSettings by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -165,12 +171,17 @@ private fun AlarmApp(
         else editingTaskId.value = null
     }
 
-    // Android 13+ 申请通知权限（安静发起，无需横幅）
+    // Android 13+ 申请通知权限（安静发起，无需横幅；已授权或永久拒绝时不再重复发起）
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { }
+    val permContext = LocalContext.current
     LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= 33) {
+        if (Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                permContext, Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -258,7 +269,6 @@ private fun AlarmApp(
                         tasks = alarmTasks,
                         onScrollingChanged = { alarmListScrolling = it },
                         onToggleTask = viewModel::setTaskEnabled,
-                        onToggleTime = viewModel::setTimeEnabled,
                         onDeleteTask = viewModel::deleteTask,
                         onEditTask = { editingTaskId.value = it },
                     )
