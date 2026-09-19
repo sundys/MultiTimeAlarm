@@ -452,7 +452,16 @@ fun AlarmEditScreen(
                             enabled = it.enabled,
                         )
                     }
-                    onSave(task, timeEntities, removedIds.toList())
+                    // 编辑已关闭的闹钟时，若修改后的排期指向未来（任一时间点有未来的触发时刻），
+                    // 保存即自动重新启用，无需再到列表中手动打开
+                    val finalTask = if (!task.enabled) {
+                        val hasFuture = timeEntities.any { time ->
+                            com.example.multitimealarm.util.TimeUtils
+                                .nextTriggerAt(task.copy(enabled = true), time) != null
+                        }
+                        if (hasFuture) task.copy(enabled = true) else task
+                    } else task
+                    onSave(finalTask, timeEntities, removedIds.toList())
                     onBack()
                 },
                 modifier = Modifier
