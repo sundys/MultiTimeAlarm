@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 更新安装包所在目录：外部专属下载目录 + 内部 files 目录兜底 -->
+<paths>
+    <external-files-path
+        name="external_download"
+        path="Download/" />
+    <files-path
+        name="internal_download"
+        path="Download/" />
+</paths>

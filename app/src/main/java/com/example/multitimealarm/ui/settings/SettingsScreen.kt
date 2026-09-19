@@ -95,19 +95,6 @@ private fun SectionHeader(title: String) {
     )
 }
 
-/** 版本号比较：remote > current 返回 true（按数值段比较） */
-private fun isNewerVersion(remote: String, current: String): Boolean {
-    val parse = { s: String -> s.split(".").map { it.filter(Char::isDigit).toIntOrNull() ?: 0 } }
-    val a = parse(remote)
-    val b = parse(current)
-    for (i in 0 until maxOf(a.size, b.size)) {
-        val x = a.getOrElse(i) { 0 }
-        val y = b.getOrElse(i) { 0 }
-        if (x != y) return x > y
-    }
-    return false
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
@@ -142,6 +129,12 @@ fun SettingsScreen(
     var statusText by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
     var pendingRestoreJson by remember { mutableStateOf<String?>(null) }
+    // 下载完成但"安装未知应用"未授权时暂存安装包，授权返回后自动续装
+    var pendingInstallFile by remember { mutableStateOf<java.io.File?>(null) }
+    var installHint by remember { mutableStateOf<String?>(null) }
+    // 最近一次下载的安装包与目标版本（用于安装完成后自动清理）
+    var downloadedApk by remember { mutableStateOf<java.io.File?>(null) }
+    var downloadedTag by remember { mutableStateOf<String?>(null) }
 
     // SAF 备份/恢复
     val backupLauncher = rememberLauncherForActivityResult(
@@ -193,6 +186,26 @@ fun SettingsScreen(
                 if (Build.VERSION.SDK_INT >= 34) {
                     fullScreenAllowed = context.getSystemService(NotificationManager::class.java)
                         .canUseFullScreenIntent()
+                }
+                // 从"安装未知应用"授权页返回：已授权则自动继续之前挂起的安装
+                pendingInstallFile?.let { file ->
+                    if (com.example.multitimealarm.util.UpdateDownloader.canInstallApk(context)) {
+                        pendingInstallFile = null
+                        installHint = "正在调起安装程序…"
+                        com.example.multitimealarm.util.UpdateDownloader.installApk(context, file)
+                    }
+                }
+                // 安装完成后（当前版本已达到目标版本）自动清理安装包
+                downloadedApk?.let { file ->
+                    val current = runCatching {
+                        context.packageManager.getPackageInfo(context.packageName, 0).versionName
+                    }.getOrNull()
+                    if (com.example.multitimealarm.util.UpdateDownloader.installFinished(downloadedTag, current)) {
+                        downloadedApk = null
+                        downloadedTag = null
+                        runCatching { file.delete() }
+                        installHint = "已安装 v$current，安装包已自动清理"
+                    }
                 }
             }
         }
@@ -515,13 +528,29 @@ fun SettingsScreen(
                     runCatching {
                         val asset = com.example.multitimealarm.util.UpdateDownloader.pickApkAsset(json)
                             ?: throw IllegalStateException("未找到适合本机的安装包")
-                        com.example.multitimealarm.util.UpdateDownloader.downloadApk(
+                        val file = com.example.multitimealarm.util.UpdateDownloader.downloadApk(
                             context, asset.third, asset.second
                         ) { pct -> downloadPct = pct }
+                        file to asset.first
                     }
                 }
                 downloading = false
-                result.onSuccess { path -> downloadedPath = path }
+                result.onSuccess { (file, tag) ->
+                    downloadedPath = file.name
+                    downloadedApk = file
+                    downloadedTag = tag
+                    // 下载完成直接调起系统安装器；未授权"安装未知应用"时先引导授权，返回后自动续装
+                    if (com.example.multitimealarm.util.UpdateDownloader.canInstallApk(context)) {
+                        installHint = "正在调起安装程序…"
+                        com.example.multitimealarm.util.UpdateDownloader.installApk(context, file)
+                    } else {
+                        installHint = "请在接下来页面允许「安装未知应用」，返回后自动继续安装"
+                        pendingInstallFile = file
+                        if (!com.example.multitimealarm.util.UpdateDownloader.requestInstallPermission(context)) {
+                            openAppDetails(context)
+                        }
+                    }
+                }
                     .onFailure { downloadError = it.message?.take(80) ?: "下载失败" }
             }
         }
@@ -547,7 +576,7 @@ fun SettingsScreen(
                                 )
                             }
                             downloadedPath != null -> Text(
-                                "已下载到 $downloadedPath，打开文件管理器点击安装即可升级",
+                                installHint ?: "已下载 $downloadedPath",
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.primary,
                             )
@@ -587,7 +616,7 @@ fun SettingsScreen(
                                             val latest = runCatching {
                                                 JSONObject(json).getString("tag_name").removePrefix("v")
                                             }.getOrDefault("?")
-                                            if (isNewerVersion(latest, versionName)) {
+                                            if (com.example.multitimealarm.util.UpdateDownloader.isNewerVersion(latest, versionName)) {
                                                 foundNewTag = latest
                                                 downloadedPath = null
                                                 updateStatus = "发现新版本 v$latest"
