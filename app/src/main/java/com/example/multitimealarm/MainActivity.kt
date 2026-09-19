@@ -14,6 +14,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -332,6 +333,7 @@ private fun ScrollingFab(
     FloatingActionButton(
         onClick = { if (!hidden) onClick() },
         modifier = Modifier.alpha(alpha),
+        shape = CircleShape,
     ) {
         Icon(Icons.Default.Add, contentDescription = contentDescription)
     }
