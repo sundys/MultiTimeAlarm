@@ -13,8 +13,8 @@ android {
         applicationId = "com.sundys.alarm"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "1.1.9"
+        versionCode = 14
+        versionName = "1.2.0"
     }
 
     // ABI 拆分：只为 arm64-v8a 和 armeabi-v7a 各出包，不生成通用包
