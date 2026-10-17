@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -38,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -159,16 +161,19 @@ private fun AlarmApp(
 
     Scaffold(
         floatingActionButton = {
+            val fabColor = if (dynamicColor) MaterialTheme.colorScheme.primary else BrandBlue
             if (pagerState.currentPage == 0) {
                 ScrollingFab(
                     hidden = alarmListScrolling,
                     contentDescription = "新建闹钟",
+                    containerColor = fabColor,
                     onClick = { editingTaskId.value = NEW_TASK_ID },
                 )
             } else {
                 ScrollingFab(
                     hidden = napListScrolling,
                     contentDescription = "新建小憩",
+                    containerColor = fabColor,
                     onClick = { showNapDialog = true },
                 )
             }
@@ -188,6 +193,8 @@ private fun AlarmApp(
                         scope.launch { pagerState.animateScrollToPage(index) }
                     },
                     modifier = Modifier.align(Alignment.Center),
+                    // 开启动态取色时跟随主题主色；否则保持品牌蓝
+                    selectedColor = if (dynamicColor) MaterialTheme.colorScheme.primary else BrandBlue,
                 )
                 IconButton(
                     onClick = { showSettings = true },
@@ -239,6 +246,7 @@ private fun AlarmApp(
 private fun ScrollingFab(
     hidden: Boolean,
     contentDescription: String,
+    containerColor: Color,
     onClick: () -> Unit,
 ) {
     val alpha by animateFloatAsState(
@@ -249,9 +257,9 @@ private fun ScrollingFab(
         onClick = { if (!hidden) onClick() },
         modifier = Modifier.alpha(alpha),
         shape = CircleShape,
-        // 两种主题下都用实心品牌蓝，不用随主题变浅的 colorScheme.primary
-        containerColor = BrandBlue,
-        contentColor = Color.White,
+        containerColor = containerColor,
+        // 浅色主色（动态取色的暗色主题）下用深色图标保证可读性
+        contentColor = if (containerColor.luminance() > 0.5f) Color(0xFF1A1C1E) else Color.White,
     ) {
         Icon(Icons.Default.Add, contentDescription = contentDescription)
     }

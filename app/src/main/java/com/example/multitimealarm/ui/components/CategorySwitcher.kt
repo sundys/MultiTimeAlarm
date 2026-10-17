@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import com.example.multitimealarm.ui.theme.BrandBlue
@@ -34,7 +35,11 @@ fun CategorySwitcher(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    selectedColor: Color = BrandBlue,
 ) {
+    // 选中段文字颜色按背景亮度决定，动态取色下浅色主色也能保证可读性
+    val selectedContentColor =
+        if (selectedColor.luminance() > 0.5f) Color(0xFF1A1C1E) else Color.White
     Surface(
         modifier = modifier,
         shape = CircleShape,
@@ -49,11 +54,12 @@ fun CategorySwitcher(
                 val selected = index == selectedIndex
                 // 切换时底色与文字色同时过渡，避免瞬变
                 val background by animateColorAsState(
-                    targetValue = if (selected) BrandBlue else Color.Transparent,
+                    targetValue = if (selected) selectedColor else Color.Transparent,
                     label = "switcherBackground",
                 )
                 val contentColor by animateColorAsState(
-                    targetValue = if (selected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                    targetValue = if (selected) selectedContentColor
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                     label = "switcherContent",
                 )
                 Box(

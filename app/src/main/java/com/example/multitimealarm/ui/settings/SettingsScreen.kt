@@ -119,6 +119,10 @@ fun SettingsScreen(
             context.packageManager.getPackageInfo(context.packageName, 0).versionName
         }.getOrNull() ?: "1.0"
     }
+    // 系统是否真的实现了动态取色：部分 ROM（ColorOS 等）只有 API 31+，没有 Monet
+    val dynamicColorAvailable = remember { ThemeStore.dynamicColorAvailable(context) }
+    // 没有 Monet 时改用"直接读取壁纸主色"的兜底方案
+    val wallpaperColorAvailable = remember { ThemeStore.wallpaperColorAvailable(context) }
 
     // 系统铃声选择器（ColorOS/MIUI 等会自动跳转各自铃声选择界面）
     val ringtonePicker = rememberLauncherForActivityResult(
@@ -271,7 +275,11 @@ fun SettingsScreen(
                         icon = Icons.Filled.ColorLens,
                         iconTint = SettingTint.Blue,
                         title = "跟随壁纸取色",
-                        subtitle = "使用壁纸主色调生成界面配色，需 Android 12 及以上",
+                        subtitle = when {
+                            dynamicColorAvailable -> "使用系统壁纸取色"
+                            wallpaperColorAvailable -> "系统未内置动态取色，将直接读取壁纸主色生成配色"
+                            else -> "当前系统无法读取壁纸颜色，开启后仍使用品牌配色"
+                        },
                         trailing = {
                             Switch(
                                 checked = dynamicColor,
