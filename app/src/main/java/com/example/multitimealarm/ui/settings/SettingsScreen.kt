@@ -11,22 +11,44 @@ import android.util.Log
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Autorenew
+import androidx.compose.material.icons.filled.Backup
+import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
@@ -43,9 +65,13 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.IntentCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
@@ -81,6 +107,17 @@ private fun openAppDetails(context: Context) {
     }
 }
 
+// ============ 设置项图标配色：中等明度的强调色，浅色/暗色主题下均可读 ============
+private val IconViolet = Color(0xFF8B5CF6)
+private val IconOrange = Color(0xFFF0871F)
+private val IconPink = Color(0xFFEC4899)
+private val IconIndigo = Color(0xFF6366F1)
+private val IconTeal = Color(0xFF14B8A6)
+private val IconAmber = Color(0xFFD9A200)
+private val IconGreen = Color(0xFF22A06B)
+private val IconBlue = Color(0xFF3B82F6)
+private val IconGrey = Color(0xFF7C8798)
+
 /** 分类小标题 */
 @Composable
 private fun SectionHeader(title: String) {
@@ -88,11 +125,120 @@ private fun SectionHeader(title: String) {
         text = title,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, top = 18.dp, bottom = 6.dp),
+            .padding(start = 4.dp, top = 20.dp, bottom = 8.dp),
         fontSize = 13.sp,
         fontWeight = FontWeight.Bold,
         color = MaterialTheme.colorScheme.primary,
     )
+}
+
+/** 分类卡片：小标题 + 圆角容器，内部放若干设置项 */
+@Composable
+private fun SettingSection(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    SectionHeader(title)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
+    ) {
+        Column(content = content)
+    }
+}
+
+/** 图标底衬：圆角色块 + 居中图标 */
+@Composable
+private fun SettingIcon(icon: ImageVector, tint: Color) {
+    Box(
+        modifier = Modifier
+            .size(40.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(tint.copy(alpha = 0.15f)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(21.dp),
+        )
+    }
+}
+
+/** 卡片内分隔线：左侧留出图标宽度，与文字对齐 */
+@Composable
+private fun SettingDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 70.dp),
+        thickness = 0.6.dp,
+        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+    )
+}
+
+/**
+ * 通用设置项：左侧图标，中间标题 + 说明，右侧当前值 + 箭头
+ */
+@Composable
+private fun SettingItem(
+    icon: ImageVector,
+    iconTint: Color,
+    title: String,
+    subtitle: String? = null,
+    value: String? = null,
+    valueColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    titleColor: Color = Color.Unspecified,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(start = 16.dp, end = 12.dp, top = 13.dp, bottom = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SettingIcon(icon, iconTint)
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium,
+                color = titleColor,
+            )
+            subtitle?.let {
+                Text(
+                    text = it,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 3.dp),
+                )
+            }
+        }
+        value?.let {
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = it,
+                fontSize = 13.sp,
+                color = valueColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 104.dp),
+            )
+        }
+        Spacer(Modifier.width(4.dp))
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+            modifier = Modifier.size(20.dp),
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -111,6 +257,11 @@ fun SettingsScreen(
     var showAboutDialog by remember { mutableStateOf(false) }
     var ringtoneName by remember {
         mutableStateOf(com.example.multitimealarm.util.RingtoneStore.displayName(context))
+    }
+    val versionName = remember {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull() ?: "1.0"
     }
 
     // 系统铃声选择器（ColorOS/MIUI 等会自动跳转各自铃声选择界面）
@@ -229,24 +380,27 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp),
         ) {
             // ============ 通用 ============
-            SectionHeader("通用")
-            ListItem(
-                headlineContent = { Text("主题颜色") },
-                supportingContent = { Text(themeLabel(themeMode)) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showThemeDialog = true },
-            )
-            HorizontalDivider()
-            ListItem(
-                headlineContent = { Text("铃声设置") },
-                supportingContent = { Text(ringtoneName) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
+            SettingSection("通用") {
+                SettingItem(
+                    icon = Icons.Filled.Palette,
+                    iconTint = IconViolet,
+                    title = "主题颜色",
+                    subtitle = "浅色 / 暗色 / 跟随系统",
+                    value = themeLabel(themeMode),
+                    onClick = { showThemeDialog = true },
+                )
+                SettingDivider()
+                SettingItem(
+                    icon = Icons.Filled.MusicNote,
+                    iconTint = IconOrange,
+                    title = "铃声设置",
+                    subtitle = "闹钟到点响铃时播放的声音",
+                    value = ringtoneName,
+                    onClick = {
                         val pickerIntent = Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
                             putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
                             putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "选择闹钟铃声")
@@ -259,23 +413,20 @@ fun SettingsScreen(
                         runCatching { ringtonePicker.launch(pickerIntent) }
                             .onFailure { openAppDetails(context) }
                     },
-            )
-            HorizontalDivider()
+                )
+            }
 
             // ============ 权限 ============
-            SectionHeader("权限")
-            if (Build.VERSION.SDK_INT >= 34) {
-                ListItem(
-                    headlineContent = { Text("全屏弹窗权限") },
-                    supportingContent = {
-                        Text(
-                            if (fullScreenAllowed) "已允许，到点自动弹出响铃页"
-                            else "未允许，到点只显示通知不响铃。点击前往授权"
-                        )
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
+            SettingSection("权限") {
+                if (Build.VERSION.SDK_INT >= 34) {
+                    SettingItem(
+                        icon = Icons.Filled.Fullscreen,
+                        iconTint = IconPink,
+                        title = "全屏弹窗权限",
+                        subtitle = "点击前往授权，到点直接弹出全屏响铃页",
+                        value = if (fullScreenAllowed) "已允许" else "未允许",
+                        valueColor = if (fullScreenAllowed) IconGreen else MaterialTheme.colorScheme.error,
+                        onClick = {
                             runCatching {
                                 context.startActivity(
                                     Intent(
@@ -285,20 +436,18 @@ fun SettingsScreen(
                                 )
                             }.onFailure { openAppDetails(context) }
                         },
-                )
-                HorizontalDivider()
-            }
-            ListItem(
-                headlineContent = { Text("后台弹窗权限") },
-                supportingContent = {
-                    Text(
-                        if (Settings.canDrawOverlays(context)) "已允许，后台到点可直接弹出响铃页"
-                        else "建议允许，国产系统后台弹出界面需要此权限"
                     )
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
+                    SettingDivider()
+                }
+                SettingItem(
+                    icon = Icons.Filled.Layers,
+                    iconTint = IconIndigo,
+                    title = "后台弹窗权限",
+                    subtitle = "国产系统在后台弹出响铃页需要此权限",
+                    value = if (Settings.canDrawOverlays(context)) "已允许" else "未允许",
+                    valueColor = if (Settings.canDrawOverlays(context)) IconGreen
+                    else MaterialTheme.colorScheme.error,
+                    onClick = {
                         if (!Settings.canDrawOverlays(context)) {
                             runCatching {
                                 context.startActivity(
@@ -310,19 +459,16 @@ fun SettingsScreen(
                             }.onFailure { openAppDetails(context) }
                         }
                     },
-            )
-            HorizontalDivider()
-            ListItem(
-                headlineContent = { Text("忽略电池优化") },
-                supportingContent = {
-                    Text(
-                        if (batteryIgnoring) "已忽略，休眠时闹钟可正常响铃"
-                        else "点击授权，防止省电策略在休眠时拦截闹钟提醒"
-                    )
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
+                )
+                SettingDivider()
+                SettingItem(
+                    icon = Icons.Filled.BatterySaver,
+                    iconTint = IconTeal,
+                    title = "忽略电池优化",
+                    subtitle = "防止省电策略在休眠时拦截闹钟提醒",
+                    value = if (batteryIgnoring) "已忽略" else "未忽略",
+                    valueColor = if (batteryIgnoring) IconGreen else MaterialTheme.colorScheme.error,
+                    onClick = {
                         if (batteryIgnoring) {
                             runCatching {
                                 context.startActivity(
@@ -341,16 +487,14 @@ fun SettingsScreen(
                             }.onFailure { openAppDetails(context) }
                         }
                     },
-            )
-            HorizontalDivider()
-            ListItem(
-                headlineContent = { Text("自启动设置") },
-                supportingContent = {
-                    Text("小米/华为等系统需允许后台自启动，否则重启后闹钟可能丢失")
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
+                )
+                SettingDivider()
+                SettingItem(
+                    icon = Icons.Filled.Autorenew,
+                    iconTint = IconAmber,
+                    title = "自启动设置",
+                    subtitle = "小米/华为等系统需允许后台自启动，否则重启后闹钟可能丢失",
+                    onClick = {
                         val miui = runCatching {
                             context.startActivity(
                                 Intent().setClassName(
@@ -361,71 +505,74 @@ fun SettingsScreen(
                         }
                         if (miui.isFailure) openAppDetails(context)
                     },
-            )
-            HorizontalDivider()
+                )
+            }
             Text(
                 text = "国产定制系统（MIUI/EMUI/ColorOS 等）的后台管控可能拦截闹钟广播。" +
                     "建议完成\"忽略电池优化\"并在自启动设置中允许本应用。",
-                modifier = Modifier.padding(16.dp),
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 10.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             // ============ 数据 ============
-            SectionHeader("数据")
-            ListItem(
-                headlineContent = { Text("备份闹钟") },
-                supportingContent = { Text("导出全部闹钟为备份文件") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
+            SettingSection("数据") {
+                SettingItem(
+                    icon = Icons.Filled.Backup,
+                    iconTint = IconGreen,
+                    title = "备份闹钟",
+                    subtitle = "导出全部闹钟为备份文件",
+                    onClick = {
                         val name = "duoshi_backup_" +
                             java.time.LocalDateTime.now()
                                 .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")) + ".json"
                         runCatching { backupLauncher.launch(name) }
                     },
-            )
-            HorizontalDivider()
-            ListItem(
-                headlineContent = { Text("恢复闹钟") },
-                supportingContent = { Text("从备份文件恢复，将覆盖当前全部闹钟") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable {
+                )
+                SettingDivider()
+                SettingItem(
+                    icon = Icons.Filled.Restore,
+                    iconTint = IconBlue,
+                    title = "恢复闹钟",
+                    subtitle = "从备份文件恢复，将覆盖当前全部闹钟",
+                    onClick = {
                         runCatching {
                             restoreLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
                         }
                     },
-            )
-            HorizontalDivider()
-            ListItem(
-                headlineContent = { Text("清除全部闹钟", color = MaterialTheme.colorScheme.error) },
-                supportingContent = { Text("删除所有闹钟任务及提醒时间，不可恢复") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showClearConfirm = true },
-            )
-            HorizontalDivider()
+                )
+                SettingDivider()
+                SettingItem(
+                    icon = Icons.Filled.DeleteForever,
+                    iconTint = MaterialTheme.colorScheme.error,
+                    title = "清除全部闹钟",
+                    titleColor = MaterialTheme.colorScheme.error,
+                    subtitle = "删除所有闹钟任务及提醒时间，不可恢复",
+                    onClick = { showClearConfirm = true },
+                )
+            }
 
             // ============ 关于 ============
-            ListItem(
-                headlineContent = {
-                    Text("关于", fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showAboutDialog = true },
-            )
-            HorizontalDivider()
+            SettingSection("关于") {
+                SettingItem(
+                    icon = Icons.Filled.Info,
+                    iconTint = IconGrey,
+                    title = "关于多时闹钟",
+                    subtitle = "版本信息、检查更新与开源地址",
+                    value = "v$versionName",
+                    onClick = { showAboutDialog = true },
+                )
+            }
 
             statusText?.let {
                 Text(
                     text = it,
-                    modifier = Modifier.padding(16.dp),
+                    modifier = Modifier.padding(start = 4.dp, top = 14.dp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
+            Spacer(Modifier.height(24.dp))
         }
     }
 
@@ -502,11 +649,6 @@ fun SettingsScreen(
     }
 
     if (showAboutDialog) {
-        val versionName = remember {
-            runCatching {
-                context.packageManager.getPackageInfo(context.packageName, 0).versionName
-            }.getOrNull() ?: "1.0"
-        }
         var updateStatus by remember { mutableStateOf<String?>(null) }
         var checking by remember { mutableStateOf(false) }
         var releaseJson by remember { mutableStateOf<String?>(null) }
