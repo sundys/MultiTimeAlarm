@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -254,27 +255,30 @@ private fun TaskCard(
     onLongPress: () -> Unit,
 ) {
     val task = item.data.task
+    // 时间列宽度随系统字体缩放，既能容纳大号时间，也保证第二行与名称左对齐
+    val timeSlot = 84.dp * LocalDensity.current.fontScale
     Card(
         modifier = modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onEdit, onLongClick = onLongPress),
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
         ) {
-            // 左侧时间锚点：固定最小宽度，保证多张卡片的时间列对齐
-            Column(
-                modifier = Modifier.widthIn(min = 74.dp),
-            ) {
+            // 第一行：时间 + 闹钟名称（按基线对齐），开关靠右
+            Row(modifier = Modifier.fillMaxWidth()) {
                 if (item.nextTimeText != null) {
                     Text(
                         text = item.nextTimeText,
                         style = MaterialTheme.typography.headlineSmall,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .width(timeSlot)
+                            .alignByBaseline(),
                     )
                 } else {
                     Text(
@@ -282,30 +286,37 @@ private fun TaskCard(
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
+                        modifier = Modifier
+                            .width(timeSlot)
+                            .alignByBaseline(),
                     )
                 }
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(modifier = Modifier.weight(1f)) {
+                Spacer(Modifier.width(8.dp))
                 Text(
                     text = task.name,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f)
+                        .alignByBaseline(),
                 )
-                Spacer(Modifier.height(3.dp))
-                Text(
-                    text = subtitleOf(item),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                Spacer(Modifier.width(8.dp))
+                Switch(
+                    checked = task.enabled,
+                    onCheckedChange = { onToggleTask(task.id, it) },
+                    modifier = Modifier.align(Alignment.CenterVertically),
                 )
             }
-            Spacer(Modifier.width(8.dp))
-            Switch(
-                checked = task.enabled,
-                onCheckedChange = { onToggleTask(task.id, it) },
+            Spacer(Modifier.height(3.dp))
+            // 第二行：日期 · 类型 · 时间点数（左边界与上方的名称对齐）
+            Text(
+                text = subtitleOf(item),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = timeSlot + 8.dp),
             )
         }
     }
