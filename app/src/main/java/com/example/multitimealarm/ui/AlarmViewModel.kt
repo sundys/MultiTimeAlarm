@@ -10,6 +10,7 @@ import com.example.multitimealarm.data.AlarmTimeEntity
 import com.example.multitimealarm.data.TaskWithTimes
 import com.example.multitimealarm.util.TimeUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+/** 列表开关乐观覆盖的有效期：超过后一律以数据库为准 */
+private const val PENDING_TTL_MS = 1500L
 
 /** 列表页 UI 模型：任务数据 + 预计算好的下次响铃时刻与展示文本（后台线程一次算好，渲染时直接用） */
 data class TaskListItem(
@@ -36,18 +40,22 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * 乐观开关覆盖层：点击先翻 UI，数据库写入并重发射后自动收敛。
-     * 条目不主动清除——当覆盖值与库中一致时自然失效，
-     * 避免 Flow 重发射到达前移除覆盖导致开关闪回旧值。
+     *
+     * 覆盖值**必须有过期时间**：此前条目不主动清除，只在"与库中一致"时自然失效，
+     * 于是用户手动打开闹钟后，即使之后它已经响完被系统关闭（库里 enabled=false），
+     * 列表仍会被这条旧的 true 覆盖，一直显示开启。
      */
-    private val pendingEnabled = MutableStateFlow<Map<Long, Boolean>>(emptyMap())
+    private data class PendingToggle(val value: Boolean, val at: Long)
+
+    private val pendingEnabled = MutableStateFlow<Map<Long, PendingToggle>>(emptyMap())
 
     /** 闹钟列表：启用中按下一次响铃时间升序，已停止沉底；排序与文本计算在后台线程 */
     val tasks: StateFlow<List<TaskListItem>> =
         combine(repository.observeAllTasks(), pendingEnabled) { list, pending ->
             list.map { entry ->
                 pending[entry.task.id]
-                    ?.takeIf { it != entry.task.enabled }
-                    ?.let { entry.copy(task = entry.task.copy(enabled = it)) }
+                    ?.takeIf { it.value != entry.task.enabled }
+                    ?.let { entry.copy(task = entry.task.copy(enabled = it.value)) }
                     ?: entry
             }
         }
@@ -93,8 +101,16 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setTaskEnabled(taskId: Long, enabled: Boolean) {
-        pendingEnabled.update { it + (taskId to enabled) }
-        viewModelScope.launch { repository.setTaskEnabled(taskId, enabled) }
+        val stamp = System.currentTimeMillis()
+        pendingEnabled.update { it + (taskId to PendingToggle(enabled, stamp)) }
+        viewModelScope.launch {
+            runCatching { repository.setTaskEnabled(taskId, enabled) }
+            // 给数据库 Flow 留出回流时间，然后撤销覆盖；之后一律以库中状态为准
+            delay(PENDING_TTL_MS)
+            pendingEnabled.update { map ->
+                if (map[taskId]?.at == stamp) map - taskId else map
+            }
+        }
     }
 
     fun deleteTask(taskId: Long) {

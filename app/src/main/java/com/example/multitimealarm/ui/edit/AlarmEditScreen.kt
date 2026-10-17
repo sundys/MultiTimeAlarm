@@ -103,7 +103,6 @@ fun AlarmEditScreen(
     var intervalMinutesText by remember { mutableStateOf("0") }
     var dateEpochDay by remember { mutableStateOf<Long?>(null) }
     var vibrate by remember { mutableStateOf(true) }
-    var taskEnabled by remember { mutableStateOf(true) }
     var createdAt by remember { mutableStateOf(0L) }
     var snoozeMinutesText by remember { mutableStateOf("5") }
     var snoozeMaxCountText by remember { mutableStateOf("3") }
@@ -128,7 +127,6 @@ fun AlarmEditScreen(
                 intervalMinutesText = (loaded.task.intervalMinutes % 60).toString()
                 dateEpochDay = loaded.task.dateEpochDay
                 vibrate = loaded.task.vibrate
-                taskEnabled = loaded.task.enabled
                 createdAt = loaded.task.createdAt
                 snoozeMinutesText = loaded.task.snoozeMinutes.toString()
                 snoozeMaxCountText = loaded.task.snoozeMaxCount.toString()
@@ -248,7 +246,8 @@ fun AlarmEditScreen(
                                 else "",
                                 intervalMinutes = if (type == TaskType.INTERVAL) intervalMinutes else 0,
                                 dateEpochDay = if (type == TaskType.ONCE) dateEpochDay else null,
-                                enabled = taskEnabled,
+                                // 启用状态不在这里选：保存时按"是否存在未来触发时刻"自动决定
+                                enabled = true,
                                 vibrate = vibrate,
                                 snoozeMinutes = snoozeMinutes,
                                 snoozeMaxCount = snoozeMaxCount,
@@ -262,15 +261,12 @@ fun AlarmEditScreen(
                                     enabled = it.enabled,
                                 )
                             }
-                            // 编辑已关闭的闹钟时，若修改后的排期指向未来（任一时间点有未来的触发时刻），
-                            // 保存即自动重新启用，无需再到列表中手动打开
-                            val finalTask = if (!task.enabled) {
-                                val hasFuture = timeEntities.any { time ->
-                                    com.example.multitimealarm.util.TimeUtils
-                                        .nextTriggerAt(task.copy(enabled = true), time) != null
-                                }
-                                if (hasFuture) task.copy(enabled = true) else task
-                            } else task
+                            // 保存时只要还存在未来的触发时刻就自动启用（不再依赖编辑页开关），
+                            // 全部时间点都已过期或被关闭时才保存为停用
+                            val hasFuture = timeEntities.any { time ->
+                                com.example.multitimealarm.util.TimeUtils.nextTriggerAt(task, time) != null
+                            }
+                            val finalTask = task.copy(enabled = hasFuture)
                             onSave(finalTask, timeEntities, removedIds.toList())
                             onBack()
                         },
@@ -354,13 +350,6 @@ fun AlarmEditScreen(
                         singleLine = true,
                     )
                 }
-                SettingDivider()
-                SwitchRow(
-                    title = "启用闹钟",
-                    subtitle = if (taskEnabled) "到点正常提醒" else "已关闭，到点不会提醒",
-                    checked = taskEnabled,
-                    onCheckedChange = { taskEnabled = it },
-                )
             }
 
             // ============ 提醒规则 ============
