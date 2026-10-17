@@ -127,6 +127,24 @@ object UpdateDownloader {
     }
 
     /**
+     * 清掉"已经装上"的安装包（版本不高于当前版本），只保留尚未安装的新版本。
+     *
+     * 在 App 启动时调用：应用更新完成时进程会被系统杀掉，用户不一定还会回设置页，
+     * 只靠设置页扫描会漏掉清理。
+     */
+    fun cleanupInstalledApks(context: Context) {
+        val current = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull()
+        listApks(context).forEach { file ->
+            val version = versionFromFileName(file.name)
+            if (version == null || current == null || !isNewerVersion(version, current)) {
+                runCatching { file.delete() }
+            }
+        }
+    }
+
+    /**
      * 找一个"已下载但还没装成功"的安装包：版本必须高于当前版本，否则视为过期并删除。
      * 同一目录里只保留选中（最新）的那一个，其余一并清理。
      *

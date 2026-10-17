@@ -20,6 +20,7 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -46,6 +47,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.multitimealarm.ui.AlarmViewModel
 import com.example.multitimealarm.ui.components.CategorySwitcher
 import com.example.multitimealarm.ui.edit.AlarmEditScreen
+import com.example.multitimealarm.ui.history.AlarmHistoryScreen
 import com.example.multitimealarm.ui.list.AlarmListPage
 import com.example.multitimealarm.ui.list.NapDialog
 import com.example.multitimealarm.ui.list.NapListPage
@@ -103,9 +105,11 @@ private fun AlarmApp(
     val editingTaskId = remember { MutableStateFlow<Long?>(null) }
     val editing by editingTaskId.collectAsState()
     val allTasks by viewModel.tasks.collectAsState()
+    val history by viewModel.history.collectAsState()
     val alarmTasks = allTasks.filter { !it.data.task.isNap }
     val napTasks = allTasks.filter { it.data.task.isNap }
 
+    var showHistory by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
     var showNapDialog by remember { mutableStateOf(false) }
     var alarmListScrolling by remember { mutableStateOf(false) }
@@ -114,10 +118,13 @@ private fun AlarmApp(
     val pagerState = rememberPagerState(initialPage = 0) { 2 }
     val scope = rememberCoroutineScope()
 
-    // 系统返回键：设置页/编辑页返回到首页，而不是退出应用
-    BackHandler(enabled = showSettings || editing != null) {
-        if (showSettings) showSettings = false
-        else editingTaskId.value = null
+    // 系统返回键：历史/设置/编辑页返回到首页，而不是退出应用
+    BackHandler(enabled = showHistory || showSettings || editing != null) {
+        when {
+            showHistory -> showHistory = false
+            showSettings -> showSettings = false
+            else -> editingTaskId.value = null
+        }
     }
 
     // Android 13+ 申请通知权限（安静发起，无需横幅；已授权或永久拒绝时不再重复发起）
@@ -133,6 +140,15 @@ private fun AlarmApp(
         ) {
             notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
+    }
+
+    if (showHistory) {
+        AlarmHistoryScreen(
+            history = history,
+            onClear = viewModel::clearHistory,
+            onBack = { showHistory = false },
+        )
+        return
     }
 
     if (showSettings) {
@@ -196,6 +212,12 @@ private fun AlarmApp(
                     // 开启动态取色时跟随主题主色；否则保持品牌蓝
                     selectedColor = if (dynamicColor) MaterialTheme.colorScheme.primary else BrandBlue,
                 )
+                IconButton(
+                    onClick = { showHistory = true },
+                    modifier = Modifier.align(Alignment.CenterStart),
+                ) {
+                    Icon(Icons.Filled.History, contentDescription = "响铃历史")
+                }
                 IconButton(
                     onClick = { showSettings = true },
                     modifier = Modifier.align(Alignment.CenterEnd),

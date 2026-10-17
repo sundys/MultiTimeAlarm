@@ -22,8 +22,8 @@ class Converters {
 }
 
 @Database(
-    entities = [AlarmTaskEntity::class, AlarmTimeEntity::class],
-    version = 7,
+    entities = [AlarmTaskEntity::class, AlarmTimeEntity::class, AlarmHistoryEntity::class],
+    version = 8,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -96,6 +96,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v7 -> v8：新增响铃历史表 */
+        private val MIGRATION_7_8 = object : androidx.room.migration.Migration(7, 8) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `alarm_history` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`taskId` INTEGER NOT NULL, " +
+                        "`taskName` TEXT NOT NULL, " +
+                        "`timeId` INTEGER NOT NULL, " +
+                        "`hour` INTEGER NOT NULL, " +
+                        "`minute` INTEGER NOT NULL, " +
+                        "`second` INTEGER NOT NULL, " +
+                        "`triggeredAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_alarm_history_triggeredAt` " +
+                        "ON `alarm_history` (`triggeredAt`)"
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -110,6 +131,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_4_5,
                         MIGRATION_5_6,
                         MIGRATION_6_7,
+                        MIGRATION_7_8,
                     )
                     .build()
                     .also { instance = it }

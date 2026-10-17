@@ -22,6 +22,11 @@ class AlarmRepository(context: Context) {
 
     fun observeAllTasks(): Flow<List<TaskWithTimes>> = dao.observeAllTasks()
 
+    /** 响铃历史（最近 500 条，新的在前） */
+    fun observeHistory(): Flow<List<AlarmHistoryEntity>> = dao.observeHistory()
+
+    suspend fun clearHistory() = dao.clearHistory()
+
     suspend fun getTaskWithTimes(taskId: Long): TaskWithTimes? =
         dao.getTaskWithTimes(taskId)
 

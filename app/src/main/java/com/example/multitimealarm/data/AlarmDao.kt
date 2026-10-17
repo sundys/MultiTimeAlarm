@@ -72,4 +72,23 @@ interface AlarmDao {
 
     @Query("UPDATE alarm_times SET snoozeCount = :count WHERE id = :timeId")
     suspend fun setSnoozeCount(timeId: Long, count: Int)
+
+    // ============ 响铃历史 ============
+
+    @Insert
+    suspend fun insertHistory(entry: AlarmHistoryEntity): Long
+
+    /** 最近 500 条响铃记录，新的在前 */
+    @Query("SELECT * FROM alarm_history ORDER BY triggeredAt DESC, id DESC LIMIT 500")
+    fun observeHistory(): Flow<List<AlarmHistoryEntity>>
+
+    /** 仅保留最近的 [keep] 条，避免记录无限增长 */
+    @Query(
+        "DELETE FROM alarm_history WHERE id NOT IN " +
+            "(SELECT id FROM alarm_history ORDER BY triggeredAt DESC, id DESC LIMIT :keep)"
+    )
+    suspend fun pruneHistory(keep: Int)
+
+    @Query("DELETE FROM alarm_history")
+    suspend fun clearHistory()
 }

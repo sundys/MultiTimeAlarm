@@ -4,12 +4,16 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.example.multitimealarm.data.AlarmHistoryEntity
 import com.example.multitimealarm.data.AppDatabase
 import com.example.multitimealarm.data.TaskType
 import com.example.multitimealarm.notify.AlarmNotifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+
+/** 响铃历史最多保留的条数 */
+private const val HISTORY_KEEP = 500
 
 /**
  * 闹钟触发入口。
@@ -57,6 +61,21 @@ class AlarmReceiver : BroadcastReceiver() {
         // 真实触发：清零贪睡计数，响铃页据此显示剩余贪睡次数
         dao.setSnoozeCount(timeId, 0)
         AlarmNotifier.notifyRing(context, task, time.copy(snoozeCount = 0))
+
+        // 记录响铃历史（失败不影响响铃与后续重排），便于回看是否有漏掉的提醒
+        runCatching {
+            dao.insertHistory(
+                AlarmHistoryEntity(
+                    taskId = task.id,
+                    taskName = task.name,
+                    timeId = time.id,
+                    hour = time.hour,
+                    minute = time.minute,
+                    second = time.second,
+                )
+            )
+            dao.pruneHistory(HISTORY_KEEP)
+        }.onFailure { Log.w(TAG, "记录响铃历史失败", it) }
 
         // ColorOS/Android 14+ 可能拒绝全屏意图权限，通知被降级为普通通知。
         // 尽力直接拉起响铃页（有精确闹钟权限或自启动授权的 ROM 上可行），失败也不影响通知。

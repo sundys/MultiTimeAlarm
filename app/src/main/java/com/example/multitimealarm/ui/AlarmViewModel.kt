@@ -3,6 +3,7 @@ package com.example.multitimealarm.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.multitimealarm.data.AlarmHistoryEntity
 import com.example.multitimealarm.data.AlarmRepository
 import com.example.multitimealarm.data.AlarmTaskEntity
 import com.example.multitimealarm.data.AlarmTimeEntity
@@ -68,6 +69,15 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
             }
             .flowOn(Dispatchers.Default)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** 响铃历史：最近 500 条，新的在前 */
+    val history: StateFlow<List<AlarmHistoryEntity>> =
+        repository.observeHistory()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun clearHistory() {
+        viewModelScope.launch { repository.clearHistory() }
+    }
 
     suspend fun loadTask(taskId: Long): TaskWithTimes? =
         repository.getTaskWithTimes(taskId)

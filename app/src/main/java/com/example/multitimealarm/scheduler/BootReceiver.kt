@@ -39,6 +39,11 @@ class BootReceiver : BroadcastReceiver() {
                     // force：这些事件发生后系统侧的注册已经不可信，必须按当前时区重算
                     AlarmScheduler.rescheduleAll(context.applicationContext, force = true)
                 }.onFailure { Log.e(TAG, "系统事件重调度失败（${intent.action}）", it) }
+                // 更新安装完成后（进程已被替换）清理下载目录里的安装包
+                runCatching {
+                    com.example.multitimealarm.util.UpdateDownloader
+                        .cleanupInstalledApks(context.applicationContext)
+                }.onFailure { Log.w(TAG, "清理安装包失败", it) }
             } finally {
                 pendingResult.finish()
             }
