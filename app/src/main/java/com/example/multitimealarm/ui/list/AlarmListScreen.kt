@@ -309,14 +309,14 @@ private fun TaskCard(
                 )
             }
             Spacer(Modifier.height(3.dp))
-            // 第二行：日期 · 类型 · 时间点数（左边界与上方的名称对齐）
+            // 第二行：日期 · 类型 · 时间点数，从卡片左边距开始
             Text(
                 text = subtitleOf(item),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = timeSlot + 8.dp),
+                modifier = Modifier.fillMaxWidth(),
             )
         }
     }
