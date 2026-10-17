@@ -48,6 +48,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -138,9 +139,26 @@ fun SettingsScreen(
     // 下载完成但"安装未知应用"未授权时暂存安装包，授权返回后自动续装
     var pendingInstallFile by remember { mutableStateOf<java.io.File?>(null) }
     var installHint by remember { mutableStateOf<String?>(null) }
-    // 最近一次下载的安装包与目标版本（用于安装完成后自动清理）
-    var downloadedApk by remember { mutableStateOf<java.io.File?>(null) }
-    var downloadedTag by remember { mutableStateOf<String?>(null) }
+    // 已下载待安装的安装包：从专用目录扫描得到，而不是只存在内存里。
+    // 这样用户取消系统安装、退出设置页甚至杀进程后，回来仍能直接「重新安装」，无需重复下载。
+    var pendingApk by remember { mutableStateOf<java.io.File?>(null) }
+    var pendingTag by remember { mutableStateOf<String?>(null) }
+
+    /** 重新扫描专用目录：找到可重装的包；目录里没有则说明安装已完成或从未下载，顺手清理多余安装包 */
+    fun refreshPendingApk() {
+        val current = runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull()
+        val found = com.example.multitimealarm.util.UpdateDownloader.findPendingApk(context, current)
+        pendingApk = found
+        pendingTag = found?.let { com.example.multitimealarm.util.UpdateDownloader.versionFromFileName(it.name) }
+        if (found == null && installHint != null) {
+            installHint = "已安装 v${current ?: versionName}，安装包已自动清理"
+        }
+    }
+
+    // 进入页面先扫描一次（例如从系统安装器返回、或上次退出时留下了未安装的包）
+    LaunchedEffect(Unit) { refreshPendingApk() }
 
     // SAF 备份/恢复
     val backupLauncher = rememberLauncherForActivityResult(
@@ -207,18 +225,10 @@ fun SettingsScreen(
                         com.example.multitimealarm.util.UpdateDownloader.installApk(context, file)
                     }
                 }
-                // 安装完成后（当前版本已达到目标版本）自动清理安装包
-                downloadedApk?.let { file ->
-                    val current = runCatching {
-                        context.packageManager.getPackageInfo(context.packageName, 0).versionName
-                    }.getOrNull()
-                    if (com.example.multitimealarm.util.UpdateDownloader.installFinished(downloadedTag, current)) {
-                        downloadedApk = null
-                        downloadedTag = null
-                        runCatching { file.delete() }
-                        installHint = "已安装 v$current，安装包已自动清理"
-                    }
-                }
+                // 重新扫描安装包目录：
+                // - 安装已完成 → 目录中的包版本不再高于当前版本，会被清掉并提示"已安装"
+                // - 安装被取消 → 保留唯一一份，界面据此显示「重新安装」，不必重新下载
+                refreshPendingApk()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -560,8 +570,21 @@ fun SettingsScreen(
         var foundNewTag by remember { mutableStateOf<String?>(null) }
         var downloading by remember { mutableStateOf(false) }
         var downloadPct by remember { mutableStateOf(0) }
-        var downloadedPath by remember { mutableStateOf<String?>(null) }
         var downloadError by remember { mutableStateOf<String?>(null) }
+
+        /** 调起系统安装器；未授权"安装未知应用"时先引导授权，返回后自动续装 */
+        fun installPending(file: java.io.File) {
+            if (com.example.multitimealarm.util.UpdateDownloader.canInstallApk(context)) {
+                installHint = "正在调起安装程序…"
+                com.example.multitimealarm.util.UpdateDownloader.installApk(context, file)
+            } else {
+                installHint = "请在接下来页面允许「安装未知应用」，返回后自动继续安装"
+                pendingInstallFile = file
+                if (!com.example.multitimealarm.util.UpdateDownloader.requestInstallPermission(context)) {
+                    openAppDetails(context)
+                }
+            }
+        }
 
         fun startDownload() {
             val json = releaseJson ?: return
@@ -569,7 +592,6 @@ fun SettingsScreen(
             downloading = true
             downloadPct = 0
             downloadError = null
-            downloadedPath = null
             scope.launch {
                 val result = withContext(Dispatchers.IO) {
                     runCatching {
@@ -583,20 +605,11 @@ fun SettingsScreen(
                 }
                 downloading = false
                 result.onSuccess { (file, tag) ->
-                    downloadedPath = file.name
-                    downloadedApk = file
-                    downloadedTag = tag
-                    // 下载完成直接调起系统安装器；未授权"安装未知应用"时先引导授权，返回后自动续装
-                    if (com.example.multitimealarm.util.UpdateDownloader.canInstallApk(context)) {
-                        installHint = "正在调起安装程序…"
-                        com.example.multitimealarm.util.UpdateDownloader.installApk(context, file)
-                    } else {
-                        installHint = "请在接下来页面允许「安装未知应用」，返回后自动继续安装"
-                        pendingInstallFile = file
-                        if (!com.example.multitimealarm.util.UpdateDownloader.requestInstallPermission(context)) {
-                            openAppDetails(context)
-                        }
-                    }
+                    pendingApk = file
+                    pendingTag = tag
+                    // 目录里只保留刚下载的这一份（downloadApk 开始时已清空，这里再兜一层）
+                    com.example.multitimealarm.util.UpdateDownloader.cleanupOldApks(context, file)
+                    installPending(file)
                 }
                     .onFailure { downloadError = it.message?.take(80) ?: "下载失败" }
             }
@@ -613,28 +626,52 @@ fun SettingsScreen(
                         fontSize = 14.sp,
                     )
                     Text("当前版本：v$versionName", fontSize = 13.sp)
-                    if (foundNewTag != null) {
-                        when {
-                            downloading -> {
-                                Text("下载更新中 $downloadPct%", fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
-                                androidx.compose.material3.LinearProgressIndicator(
-                                    progress = { downloadPct / 100f },
-                                    modifier = Modifier.fillMaxWidth(),
-                                )
+                    val pending = pendingApk
+                    if (downloading) {
+                        Text(
+                            "下载更新中 $downloadPct%",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        androidx.compose.material3.LinearProgressIndicator(
+                            progress = { downloadPct / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    } else if (pending != null) {
+                        // 已下载但未装成功（用户取消安装、授权后返回等）：直接重装，不再重新下载
+                        Text(
+                            installHint ?: "安装包已下载（${pending.name}），无需重新下载",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        TextButton(onClick = { installPending(pending) }) {
+                            Text("重新安装")
+                        }
+                        // 目录里是旧版本、远端已有更新时，额外给一个下载入口
+                        foundNewTag?.let { tag ->
+                            if (com.example.multitimealarm.util.UpdateDownloader
+                                    .isNewerVersion(tag, pendingTag ?: "0")
+                            ) {
+                                TextButton(onClick = { startDownload() }) {
+                                    Text("下载新版本 v$tag")
+                                }
                             }
-                            downloadedPath != null -> Text(
-                                installHint ?: "已下载 $downloadedPath",
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            downloadError != null -> Text(
-                                "下载失败：$downloadError",
+                        }
+                    } else {
+                        installHint?.let {
+                            Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.primary)
+                        }
+                        if (foundNewTag != null) {
+                            TextButton(onClick = { startDownload() }) {
+                                Text("下载更新")
+                            }
+                        }
+                        downloadError?.let {
+                            Text(
+                                "下载失败：$it",
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.error,
                             )
-                            else -> TextButton(onClick = { startDownload() }) {
-                                Text("下载更新")
-                            }
                         }
                     }
                     updateStatus?.let {
@@ -665,7 +702,6 @@ fun SettingsScreen(
                                             }.getOrDefault("?")
                                             if (com.example.multitimealarm.util.UpdateDownloader.isNewerVersion(latest, versionName)) {
                                                 foundNewTag = latest
-                                                downloadedPath = null
                                                 updateStatus = "发现新版本 v$latest"
                                             } else {
                                                 foundNewTag = null

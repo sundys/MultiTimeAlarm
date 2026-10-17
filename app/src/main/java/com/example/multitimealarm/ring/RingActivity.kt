@@ -17,6 +17,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,6 +46,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
@@ -52,6 +54,7 @@ import com.example.multitimealarm.data.AppDatabase
 import com.example.multitimealarm.notify.AlarmNotifier
 import com.example.multitimealarm.scheduler.AlarmScheduler
 import com.example.multitimealarm.ui.theme.MultiTimeAlarmTheme
+import com.example.multitimealarm.ui.theme.TABULAR_FIGURES
 import com.example.multitimealarm.ui.theme.ThemeStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -299,10 +302,16 @@ private fun PulsingTime(timeText: String, accent: Color) {
         label = "pulseAlpha",
     )
 
-    Box(contentAlignment = Alignment.Center) {
+    BoxWithConstraints(contentAlignment = Alignment.Center) {
+        // 圆环随可用宽度自适应（手机上基本占满内容宽度，大屏封顶 300dp）
+        val diameter = minOf(maxWidth, 300.dp)
+        // 字号按圆直径计算，并换算成"固定 dp 大小"：
+        // 不跟随系统字体缩放放大，否则大字号模式下 88sp 会把时间撑成两行、跑出圆外
+        val fontSize = with(LocalDensity.current) { (diameter * 0.30f).toSp() }
+
         Box(
             modifier = Modifier
-                .size(260.dp)
+                .size(diameter)
                 .scale(pulseScale)
                 .alpha(pulseAlpha)
                 .clip(CircleShape)
@@ -310,15 +319,21 @@ private fun PulsingTime(timeText: String, accent: Color) {
         )
         Box(
             modifier = Modifier
-                .size(260.dp)
+                .size(diameter)
                 .clip(CircleShape)
                 .background(accent.copy(alpha = 0.12f)),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = timeText,
-                style = MaterialTheme.typography.displayLarge,
+                style = MaterialTheme.typography.displayLarge.copy(
+                    fontSize = fontSize,
+                    fontFeatureSettings = TABULAR_FIGURES,
+                ),
                 color = Color.White,
+                maxLines = 1,
+                softWrap = false,
+                textAlign = TextAlign.Center,
             )
         }
     }

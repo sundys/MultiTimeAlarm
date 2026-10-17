@@ -82,7 +82,7 @@ object UpdateDownloader {
             "https://gh.slw.im/$fileUrl",
             fileUrl,
         )
-        val dir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir
+        val dir = apkDir(context)
         var lastError: Exception? = null
         for (url in urls) {
             val file = File(dir, fileName)
@@ -102,6 +102,70 @@ object UpdateDownloader {
             }
         }
         throw lastError ?: IllegalStateException("下载失败")
+    }
+
+    /** 专用的安装包目录（应用外部私有目录，无需存储权限） */
+    fun apkDir(context: Context): File =
+        context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: File(context.filesDir, "updates")
+
+    /** 目录中已有的安装包，按修改时间倒序 */
+    fun listApks(context: Context): List<File> {
+        val files = apkDir(context).listFiles { f -> f.isFile && f.name.endsWith(".apk", ignoreCase = true) }
+        return files?.sortedByDescending { it.lastModified() } ?: emptyList()
+    }
+
+    /**
+     * 只保留 [keep] 这一个安装包，其余全部删除。
+     * 用于「下载前清空」以及「安装完成后清理」，避免专用目录里堆积多个版本占用空间。
+     */
+    fun cleanupOldApks(context: Context, keep: File?) {
+        listApks(context).forEach { file ->
+            if (file != keep && file.absolutePath != keep?.absolutePath) {
+                runCatching { file.delete() }
+            }
+        }
+    }
+
+    /**
+     * 找一个"已下载但还没装成功"的安装包：版本必须高于当前版本，否则视为过期并删除。
+     * 同一目录里只保留选中（最新）的那一个，其余一并清理。
+     *
+     * 这样即使用户取消系统安装、退出设置页甚至杀掉进程，重新进入时也能直接「重新安装」，
+     * 而不是重新下载。
+     */
+    fun findPendingApk(context: Context, currentVersion: String?): File? {
+        val files = listApks(context)
+        val pendingName = pickPendingFileName(files.map { it.name }, currentVersion)
+        val pending = files.firstOrNull { it.name == pendingName }
+        // 过期版本（不高于当前版本）与多余的安装包直接清理，目录里最多留一个
+        files.forEach { file ->
+            if (file != pending) runCatching { file.delete() }
+        }
+        return pending
+    }
+
+    /**
+     * 纯函数：从一组文件名里挑出可重装的安装包 —— 版本必须高于当前版本，取其中版本最高者。
+     * 没有匹配返回 null。抽出来是为了能用真实的目录列表做单元测试。
+     */
+    fun pickPendingFileName(names: List<String>, currentVersion: String?): String? {
+        if (currentVersion.isNullOrBlank()) return null
+        return names
+            .mapNotNull { name -> versionFromFileName(name)?.let { version -> version to name } }
+            .filter { (version, _) -> isNewerVersion(version, currentVersion) }
+            .maxWithOrNull { a, b -> compareVersionParts(versionParts(a.first), versionParts(b.first)) }
+            ?.second
+    }
+
+    /**
+     * 从 Release 资产名里解析版本号，例如
+     * MultiTimeAlarm-v1.2.2-arm64-v8a.apk 或 MultiTimeAlarm-v1.2.2-arm64-v8a-release-unsigned.apk。
+     * 解析不到返回 null。
+     */
+    fun versionFromFileName(name: String): String? {
+        val match = Regex("""MultiTimeAlarm-(v?\d+(?:\.\d+)*)""", RegexOption.IGNORE_CASE)
+            .find(name) ?: return null
+        return match.groupValues[1].removePrefix("v").removePrefix("V")
     }
 
     /** 是否已获得"安装未知应用"授权（本应用 minSdk 26，恒定适用） */
@@ -150,18 +214,22 @@ object UpdateDownloader {
         }
     }
 
-    /** 版本比较：a > b 返回 true（按数值段比较） */
-    fun isNewerVersion(a: String, b: String): Boolean {
-        val parse = { s: String -> s.split(".").map { it.filter(Char::isDigit).toIntOrNull() ?: 0 } }
-        val x = parse(a)
-        val y = parse(b)
+    /** 版本号拆成数值段，"1.2.2" -> [1, 2, 2]；非数字段按 0 处理 */
+    private fun versionParts(version: String): List<Int> =
+        version.split(".").map { it.filter(Char::isDigit).toIntOrNull() ?: 0 }
+
+    private fun compareVersionParts(x: List<Int>, y: List<Int>): Int {
         for (i in 0 until maxOf(x.size, y.size)) {
             val p = x.getOrElse(i) { 0 }
             val q = y.getOrElse(i) { 0 }
-            if (p != q) return p > q
+            if (p != q) return p - q
         }
-        return false
+        return 0
     }
+
+    /** 版本比较：a > b 返回 true（按数值段比较） */
+    fun isNewerVersion(a: String, b: String): Boolean =
+        compareVersionParts(versionParts(a), versionParts(b)) > 0
 
     /**
      * 安装是否已完成（可清理安装包）：当前版本已达到下载的目标版本。

@@ -21,14 +21,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -92,7 +89,6 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AlarmApp(
     viewModel: AlarmViewModel = viewModel(),
@@ -162,16 +158,6 @@ private fun AlarmApp(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("多时闹钟") },
-                actions = {
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置")
-                    }
-                },
-            )
-        },
         floatingActionButton = {
             if (pagerState.currentPage == 0) {
                 ScrollingFab(
@@ -189,12 +175,11 @@ private fun AlarmApp(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            // 分类切换：居中胶囊分段，选中填充品牌蓝；左右滑动仍可切页
+            // 顶部同一行：分类胶囊居中，设置入口靠右；不再显示应用名
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 10.dp),
-                contentAlignment = Alignment.Center,
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
             ) {
                 CategorySwitcher(
                     labels = listOf("闹钟", "小憩"),
@@ -202,7 +187,14 @@ private fun AlarmApp(
                     onSelect = { index ->
                         scope.launch { pagerState.animateScrollToPage(index) }
                     },
+                    modifier = Modifier.align(Alignment.Center),
                 )
+                IconButton(
+                    onClick = { showSettings = true },
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                ) {
+                    Icon(Icons.Filled.Settings, contentDescription = "设置")
+                }
             }
             HorizontalPager(
                 state = pagerState,
