@@ -5,6 +5,7 @@ import com.example.multitimealarm.data.AlarmTimeEntity
 import com.example.multitimealarm.data.TaskType
 import com.example.multitimealarm.util.TimeUtils
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.LocalDate
@@ -35,6 +36,9 @@ class TimeUtilsTest {
 
     private fun time(hour: Int, minute: Int, enabled: Boolean = true) =
         AlarmTimeEntity(id = 1, taskId = 1, hour = hour, minute = minute, enabled = enabled)
+
+    private fun time(hour: Int, minute: Int, second: Int) =
+        AlarmTimeEntity(id = 1, taskId = 1, hour = hour, minute = minute, second = second)
 
     // 一.1 单次闹钟：设定某天特定时间响一次
     @Test
@@ -245,5 +249,30 @@ class TimeUtilsTest {
     fun `interval with zero interval returns null`() {
         val t = task(TaskType.INTERVAL, intervalMinutes = 0)
         assertNull(TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 8, 29, 10, 0)))
+    }
+
+    @Test
+    fun `formatHhmm pads hour and minute to two digits`() {
+        assertEquals("08:05", TimeUtils.formatHhmm(at(2026, 8, 20, 8, 5)))
+    }
+
+    @Test
+    fun `formatHhmm keeps 24 hour clock in the evening`() {
+        assertEquals("23:59", TimeUtils.formatHhmm(at(2026, 8, 20, 23, 59)))
+    }
+
+    @Test
+    fun `formatMonthDay prints month and day without padding`() {
+        assertEquals("8月20日", TimeUtils.formatMonthDay(at(2026, 8, 20, 8, 5)))
+        assertEquals("12月3日", TimeUtils.formatMonthDay(at(2026, 12, 3, 0, 0)))
+    }
+
+    @Test
+    fun `monthly keeps the seconds of the time point`() {
+        val t = task(TaskType.MONTHLY, monthDays = "1")
+        val trigger = TimeUtils.nextTriggerAt(t, time(8, 0, 30), now = at(2026, 8, 20, 10, 0))
+        assertNotNull(trigger)
+        // 秒必须保留，而不是被截断到整分
+        assertEquals(30_000L, trigger!! % 60_000L)
     }
 }

@@ -5,8 +5,6 @@ import android.util.Log
 import androidx.room.withTransaction
 import com.example.multitimealarm.scheduler.AlarmScheduler
 import kotlinx.coroutines.flow.Flow
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
  * 数据仓库：写操作后统一触发对应任务的重新调度，
@@ -14,29 +12,39 @@ import org.json.JSONObject
  */
 class AlarmRepository(context: Context) {
 
-    private val dao = AppDatabase.getInstance(context).alarmDao()
+    private val db = AppDatabase.getInstance(context)
+    private val dao = db.alarmDao()
     private val appContext = context.applicationContext
+
+    private companion object {
+        const val TAG = "AlarmRepository"
+    }
 
     fun observeAllTasks(): Flow<List<TaskWithTimes>> = dao.observeAllTasks()
 
     suspend fun getTaskWithTimes(taskId: Long): TaskWithTimes? =
         dao.getTaskWithTimes(taskId)
 
-    /** 新建任务并注册其全部时间点 */
+    /** 新建任务并注册其全部时间点（任务与时间点同一事务，避免中途失败留下半个闹钟） */
     suspend fun createTask(task: AlarmTaskEntity, times: List<AlarmTimeEntity>): Long {
-        val taskId = dao.insertTask(task)
-        times.forEach { dao.insertTime(it.copy(taskId = taskId)) }
+        val taskId = db.withTransaction {
+            val id = dao.insertTask(task)
+            times.forEach { dao.insertTime(it.copy(taskId = id)) }
+            id
+        }
         AlarmScheduler.rescheduleTask(appContext, taskId)
         return taskId
     }
 
-    /** 更新任务：同步时间点的增删改，并整体重调度 */
+    /** 更新任务：同步时间点的增删改（单事务），并整体重调度 */
     suspend fun updateTask(task: AlarmTaskEntity, times: List<AlarmTimeEntity>, removedTimeIds: List<Long>) {
-        dao.updateTask(task)
-        removedTimeIds.forEach { dao.deleteTimeById(it) }
-        times.forEach { time ->
-            if (time.id == 0L) dao.insertTime(time.copy(taskId = task.id))
-            else dao.updateTime(time.copy(taskId = task.id))
+        db.withTransaction {
+            dao.updateTask(task)
+            removedTimeIds.forEach { dao.deleteTimeById(it) }
+            times.forEach { time ->
+                if (time.id == 0L) dao.insertTime(time.copy(taskId = task.id))
+                else dao.updateTime(time.copy(taskId = task.id))
+            }
         }
         AlarmScheduler.rescheduleTask(appContext, task.id)
     }
@@ -48,12 +56,6 @@ class AlarmRepository(context: Context) {
         } else {
             AlarmScheduler.cancelTask(appContext, taskId)
         }
-    }
-
-    suspend fun setTimeEnabled(timeId: Long, enabled: Boolean) {
-        val time = dao.getTime(timeId) ?: return
-        dao.setTimeEnabled(timeId, enabled)
-        AlarmScheduler.rescheduleTask(appContext, time.taskId)
     }
 
     suspend fun deleteTask(taskId: Long) {
@@ -71,97 +73,39 @@ class AlarmRepository(context: Context) {
         return all.size
     }
 
-    /** 导出全部闹钟为 JSON 字符串 */
-    suspend fun exportJson(): String {
-        val all = dao.getAllTasks()
-        val arr = JSONArray()
-        all.forEach { entry ->
-            val o = JSONObject()
-            o.put("name", entry.task.name)
-            o.put("type", entry.task.type.name)
-            o.put("weekdaysMask", entry.task.weekdaysMask)
-            o.put("monthDay", entry.task.monthDay)
-            o.put("monthDays", entry.task.monthDays)
-            o.put("intervalMinutes", entry.task.intervalMinutes)
-            entry.task.dateEpochDay?.let { o.put("dateEpochDay", it) }
-            o.put("enabled", entry.task.enabled)
-            o.put("vibrate", entry.task.vibrate)
-            o.put("snoozeMinutes", entry.task.snoozeMinutes)
-            o.put("snoozeMaxCount", entry.task.snoozeMaxCount)
-            o.put("isNap", entry.task.isNap)
-            o.put("note", entry.task.note)
-            val times = JSONArray()
-            entry.times.forEach { t ->
-                times.put(
-                    JSONObject()
-                        .put("hour", t.hour)
-                        .put("minute", t.minute)
-                        .put("second", t.second)
-                        .put("enabled", t.enabled)
-                )
-            }
-            o.put("times", times)
-            arr.put(o)
-        }
-        return JSONObject()
-            .put("app", "MultiTimeAlarm")
-            .put("version", 1)
-            .put("count", all.size)
-            .put("tasks", arr)
-            .toString(2)
-    }
+    /** 导出全部闹钟 JSON（编解码与校验集中在 AlarmBackup，便于单测覆盖） */
+    suspend fun exportJson(): String = AlarmBackup.encode(dao.getAllTasks())
 
     /**
-     * 从 JSON 恢复（覆盖当前全部闹钟）：取消现有注册 → 清库 → 导入（单事务）→ 重新调度。
-     * 返回恢复的任务数；格式非法抛 org.json.JSONException。
+     * 从 JSON 恢复（覆盖当前全部闹钟）。返回恢复的任务数；格式非法抛 [org.json.JSONException]。
+     *
+     * 顺序很关键：
+     * 1. 先把整份 JSON 解析校验完 —— 备份文件有问题时在这里就抛出，**用户现有闹钟一条都不会动**
+     * 2. 清空与写入放进同一个事务，中途失败整体回滚
+     * 3. 系统闹钟的取消/重注册放在事务提交之后（旧的 timeId 提前记下来，
+     *    因为删库后就查不到了；中途进程被杀由冷启动的兜底重调度补上）
      */
     suspend fun restoreJson(json: String): Int {
-        val root = JSONObject(json)
-        val arr = root.getJSONArray("tasks")
-        // 先清空当前
-        deleteAll()
-        // 数据导入包进单事务，中途失败整体回滚，不会留下半份数据
-        val restoredIds = AppDatabase.getInstance(appContext).withTransaction {
-            val ids = mutableListOf<Long>()
-            for (i in 0 until arr.length()) {
-                val o = arr.getJSONObject(i)
-                val task = AlarmTaskEntity(
-                    name = o.optString("name", "定时提醒"),
-                    type = runCatching { TaskType.valueOf(o.getString("type")) }
-                        .getOrDefault(TaskType.DAILY),
-                    weekdaysMask = o.optInt("weekdaysMask", 0),
-                    monthDay = o.optInt("monthDay", 0),
-                    monthDays = o.optString("monthDays", ""),
-                    intervalMinutes = o.optLong("intervalMinutes", 0),
-                    dateEpochDay = if (o.has("dateEpochDay")) o.getLong("dateEpochDay") else null,
-                    enabled = o.optBoolean("enabled", true),
-                    vibrate = o.optBoolean("vibrate", true),
-                    snoozeMinutes = o.optInt("snoozeMinutes", 5),
-                    snoozeMaxCount = o.optInt("snoozeMaxCount", 3),
-                    isNap = o.optBoolean("isNap", false),
-                    note = o.optString("note", ""),
-                )
-                val taskId = dao.insertTask(task)
-                ids.add(taskId)
-                val times = o.optJSONArray("times") ?: JSONArray()
-                for (j in 0 until times.length()) {
-                    val t = times.getJSONObject(j)
-                    dao.insertTime(
-                        AlarmTimeEntity(
-                            taskId = taskId,
-                            hour = t.optInt("hour", 8),
-                            minute = t.optInt("minute", 0),
-                            second = t.optInt("second", 0),
-                            enabled = t.optBoolean("enabled", true),
-                        )
-                    )
-                }
+        val parsed = AlarmBackup.decode(json)
+        val oldTimeIds = dao.getAllTasks().flatMap { entry -> entry.times.map { it.id } }
+        val newTaskIds = mutableListOf<Long>()
+        db.withTransaction {
+            dao.deleteAllTasks()
+            parsed.entries.forEach { entry ->
+                val taskId = dao.insertTask(entry.task)
+                newTaskIds.add(taskId)
+                entry.times.forEach { dao.insertTime(it.copy(taskId = taskId)) }
             }
-            ids
         }
-        // 系统闹钟注册放事务外，逐任务调度
-        restoredIds.forEach { AlarmScheduler.rescheduleTask(appContext, it) }
-        Log.i("AlarmRepository", "已恢复 ${restoredIds.size} 个闹钟")
-        return restoredIds.size
+        oldTimeIds.forEach { AlarmScheduler.cancelTime(appContext, it) }
+        newTaskIds.forEach { AlarmScheduler.rescheduleTask(appContext, it) }
+        if (parsed.skippedTasks > 0 || parsed.skippedTimes > 0) {
+            Log.w(
+                TAG,
+                "恢复时跳过 ${parsed.skippedTasks} 条无有效时间点的任务、${parsed.skippedTimes} 个越界时间点",
+            )
+        }
+        Log.i(TAG, "已恢复 ${parsed.count} 个闹钟")
+        return parsed.count
     }
 }

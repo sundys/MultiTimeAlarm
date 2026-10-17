@@ -1,6 +1,8 @@
 package com.example.multitimealarm.ui.list
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -11,17 +13,22 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AlarmAdd
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,7 +41,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -49,10 +59,14 @@ fun AlarmListPage(
     onToggleTask: (Long, Boolean) -> Unit,
     onDeleteTask: (Long) -> Unit,
     onEditTask: (Long) -> Unit,
+    onCreate: () -> Unit,
 ) {
     TaskListContent(
         tasks = tasks,
-        emptyHint = "还没有闹钟\n点击右下角 + 新建闹钟，一个闹钟可设置多个提醒时间",
+        emptyIcon = Icons.Filled.AlarmAdd,
+        emptyHint = "还没有闹钟\n一个闹钟可以设置多个提醒时间，到点分别提醒",
+        emptyAction = "新建闹钟",
+        onCreate = onCreate,
         onScrollingChanged = onScrollingChanged,
         onToggleTask = onToggleTask,
         onDeleteTask = onDeleteTask,
@@ -68,10 +82,14 @@ fun NapListPage(
     onDeleteTask: (Long) -> Unit,
     onEditTask: (Long) -> Unit,
     onToggleTask: (Long, Boolean) -> Unit,
+    onCreate: () -> Unit,
 ) {
     TaskListContent(
         tasks = naps,
-        emptyHint = "还没有小憩\n点击右下角 + 定时 N 分钟后响铃",
+        emptyIcon = Icons.Filled.Bedtime,
+        emptyHint = "还没有小憩\n定个 N 分钟后的倒计时，到点响铃",
+        emptyAction = "新建小憩",
+        onCreate = onCreate,
         onScrollingChanged = onScrollingChanged,
         onToggleTask = onToggleTask,
         onDeleteTask = onDeleteTask,
@@ -83,7 +101,10 @@ fun NapListPage(
 @Composable
 private fun TaskListContent(
     tasks: List<TaskListItem>,
+    emptyIcon: ImageVector,
     emptyHint: String,
+    emptyAction: String,
+    onCreate: () -> Unit,
     onScrollingChanged: (Boolean) -> Unit,
     onToggleTask: (Long, Boolean) -> Unit,
     onDeleteTask: (Long) -> Unit,
@@ -99,7 +120,7 @@ private fun TaskListContent(
     var disabledExpanded by rememberSaveable { mutableStateOf(false) }
 
     if (tasks.isEmpty()) {
-        EmptyHint(emptyHint)
+        EmptyHint(emptyIcon, emptyHint, emptyAction, onCreate)
     } else {
         val enabled = tasks.filter { it.data.task.enabled }
         val disabled = tasks.filterNot { it.data.task.enabled }
@@ -107,11 +128,12 @@ private fun TaskListContent(
             state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(enabled, key = { "t${it.data.task.id}" }) { item ->
                 TaskCard(
                     item = item,
+                    modifier = Modifier.animateItem(),
                     onToggleTask = onToggleTask,
                     onEdit = { onEditTask(item.data.task.id) },
                     onLongPress = { deleteTarget = item },
@@ -129,6 +151,7 @@ private fun TaskListContent(
                     items(disabled, key = { "t${it.data.task.id}" }) { item ->
                         TaskCard(
                             item = item,
+                            modifier = Modifier.animateItem(),
                             onToggleTask = onToggleTask,
                             onEdit = { onEditTask(item.data.task.id) },
                             onLongPress = { deleteTarget = item },
@@ -151,55 +174,88 @@ private fun TaskListContent(
     }
 }
 
-/** 已停止分组折叠头：显示数量与展开/收起操作 */
+/** 已停止分组折叠头：整行可点，箭头随展开状态旋转 */
 @Composable
 private fun DisabledGroupHeader(count: Int, expanded: Boolean, onClick: () -> Unit) {
+    val rotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        label = "groupArrow",
+    )
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .clip(MaterialTheme.shapes.small)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = "已停止（$count）",
-            fontSize = 13.sp,
+            style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = onClick) {
-            Text(if (expanded) "收起" else "展开", fontSize = 13.sp)
-        }
-    }
-}
-
-@Composable
-private fun EmptyHint(text: String) {
-    Column(
-        modifier = Modifier.fillMaxSize(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(
-            text = text,
-            fontSize = 14.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            lineHeight = 22.sp,
+        Icon(
+            imageVector = Icons.Filled.ExpandMore,
+            contentDescription = if (expanded) "收起" else "展开",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier
+                .size(22.dp)
+                .rotate(rotation),
         )
     }
 }
 
-/** 闹钟卡片：两行紧凑样式。点击编辑，长按删除，右侧总开关 */
+/** 空状态：淡色图标 + 说明 + 引导按钮 */
+@Composable
+private fun EmptyHint(
+    icon: ImageVector,
+    text: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.16f),
+            modifier = Modifier.size(120.dp),
+        )
+        Spacer(Modifier.height(20.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            lineHeight = 22.sp,
+        )
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = onAction) { Text(actionLabel) }
+    }
+}
+
+/**
+ * 闹钟卡片：左侧大号下次响铃时间为视觉锚点，右侧名称与类型信息。
+ * 点击编辑，长按删除，最右总开关。
+ */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TaskCard(
     item: TaskListItem,
+    modifier: Modifier = Modifier,
     onToggleTask: (Long, Boolean) -> Unit,
     onEdit: () -> Unit,
     onLongPress: () -> Unit,
 ) {
     val task = item.data.task
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .combinedClickable(onClick = onEdit, onLongClick = onLongPress),
     ) {
@@ -209,41 +265,42 @@ private fun TaskCard(
                 .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // 左侧时间锚点：固定最小宽度，保证多张卡片的时间列对齐
+            Column(
+                modifier = Modifier.widthIn(min = 74.dp),
+            ) {
+                if (item.nextTimeText != null) {
+                    Text(
+                        text = item.nextTimeText,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
+                } else {
+                    Text(
+                        text = "已停止",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                }
+            }
+            Spacer(Modifier.width(14.dp))
             Column(modifier = Modifier.weight(1f)) {
-                // 第一行：闹钟名称
                 Text(
                     text = task.name,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(6.dp))
-                // 第二行：下次响铃时间  类型  N个时间点
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = item.nextText ?: "已停止",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                        color = if (item.nextText != null) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = typeText(item.data),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = "${item.data.times.size}个时间点",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = subtitleOf(item),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Spacer(Modifier.width(8.dp))
             Switch(
@@ -252,6 +309,16 @@ private fun TaskCard(
             )
         }
     }
+}
+
+/** 副行：下次响铃日期 · 提醒类型 · 时间点数（· 备注） */
+private fun subtitleOf(item: TaskListItem): String {
+    val parts = mutableListOf<String>()
+    item.nextDateText?.let { parts += it }
+    parts += typeText(item.data)
+    parts += "${item.data.times.size}个时间点"
+    item.data.task.note.takeIf { it.isNotBlank() }?.let { parts += "备注：$it" }
+    return parts.joinToString(" · ")
 }
 
 private fun typeText(item: TaskWithTimes): String = when (item.task.type) {
@@ -292,7 +359,7 @@ fun NapDialog(
         title = { Text("小憩倒计时") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("多久之后响铃？", fontSize = 13.sp)
+                Text("多久之后响铃？", style = MaterialTheme.typography.bodyMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(5, 10, 20).forEach { minutes ->
                         FilterChip(

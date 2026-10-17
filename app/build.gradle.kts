@@ -13,8 +13,8 @@ android {
         applicationId = "com.sundys.alarm"
         minSdk = 26
         targetSdk = 34
-        versionCode = 15
-        versionName = "1.2.1"
+        versionCode = 16
+        versionName = "1.2.2"
     }
 
     // ABI 拆分：只为 arm64-v8a 和 armeabi-v7a 各出包，不生成通用包
@@ -71,6 +71,11 @@ android {
     }
 }
 
+// 导出 Room 的 schema JSON 到 app/schemas（入库），便于在 CI 里校验迁移是否与实体一致
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)
@@ -90,6 +95,8 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
 
     testImplementation("junit:junit:4.13.2")
+    // 单测里提供真正的 org.json 实现：android.jar 里的是会抛 "not mocked" 的桩
+    testImplementation("org.json:json:20240303")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation(composeBom)

@@ -1,54 +1,36 @@
 package com.example.multitimealarm
 
 import android.Manifest
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabPosition
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,88 +40,55 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.multitimealarm.ui.AlarmViewModel
+import com.example.multitimealarm.ui.components.CategorySwitcher
 import com.example.multitimealarm.ui.edit.AlarmEditScreen
 import com.example.multitimealarm.ui.list.AlarmListPage
 import com.example.multitimealarm.ui.list.NapDialog
 import com.example.multitimealarm.ui.list.NapListPage
 import com.example.multitimealarm.ui.settings.SettingsScreen
-import com.example.multitimealarm.ui.settings.THEME_DARK
-import com.example.multitimealarm.ui.settings.THEME_LIGHT
+import com.example.multitimealarm.ui.theme.BrandBlue
+import com.example.multitimealarm.ui.theme.MultiTimeAlarmTheme
+import com.example.multitimealarm.ui.theme.ThemeStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
 /** 编辑页"新建闹钟"模式的哨兵 id（0 和正数是真实任务 id，null 表示列表页） */
 private const val NEW_TASK_ID = -1L
-private const val PREFS_NAME = "app_settings"
-private const val KEY_THEME_MODE = "theme_mode"
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 内容延伸到系统栏下，系统栏底色由页面自身 surface 承担
+        enableEdgeToEdge()
         setContent {
-            MultiTimeAlarmTheme {
+            val context = LocalContext.current
+            // 主题状态由 Activity 层持有，切换后整个界面即时重组
+            var themeMode by remember { mutableStateOf(ThemeStore.themeMode(context)) }
+            var dynamicColor by remember { mutableStateOf(ThemeStore.dynamicColor(context)) }
+
+            MultiTimeAlarmTheme(themeMode = themeMode, dynamicColor = dynamicColor) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AlarmApp()
+                    AlarmApp(
+                        themeMode = themeMode,
+                        onThemeModeChange = { mode ->
+                            themeMode = mode
+                            ThemeStore.setThemeMode(context, mode)
+                        },
+                        dynamicColor = dynamicColor,
+                        onDynamicColorChange = { enabled ->
+                            dynamicColor = enabled
+                            ThemeStore.setDynamicColor(context, enabled)
+                        },
+                    )
                 }
             }
         }
-    }
-}
-
-/** 系统栏底色：statusBarColor 自 API 35 起废弃，targetSdk 34 下仍生效，集中一处便于将来迁移 */
-@Suppress("DEPRECATION")
-private fun applySystemBarColor(window: android.view.Window, dark: Boolean) {
-    val color = if (dark) android.graphics.Color.BLACK else android.graphics.Color.WHITE
-    window.statusBarColor = color
-    window.navigationBarColor = color
-}
-
-/** 主题包装：按用户设置（跟随系统/浅色/暗色）选择配色 */
-@Composable
-private fun MultiTimeAlarmTheme(content: @Composable () -> Unit) {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
-    var themeMode by remember { mutableStateOf(prefs.getInt(KEY_THEME_MODE, 0)) }
-
-    val dark = when (themeMode) {
-        THEME_LIGHT -> false
-        THEME_DARK -> true
-        else -> isSystemInDarkTheme()
-    }
-
-    // 状态栏 + 底部导航栏跟随应用内主题（基础主题只能跟随系统，这里覆盖应用内切换）
-    val view = LocalView.current
-    if (!view.isInEditMode) {
-        SideEffect {
-            var ctx: Context? = view.context
-            while (ctx is ContextWrapper && ctx !is Activity) ctx = ctx.baseContext
-            (ctx as? Activity)?.window?.let { window ->
-                val controller = WindowCompat.getInsetsController(window, view)
-                controller.isAppearanceLightStatusBars = !dark
-                controller.isAppearanceLightNavigationBars = !dark
-                applySystemBarColor(window, dark)
-            }
-        }
-    }
-
-    MaterialTheme(
-        colorScheme = if (dark) darkColorScheme() else lightColorScheme(),
-    ) {
-        AlarmApp(
-            themeMode = themeMode,
-            onThemeModeChange = { mode ->
-                themeMode = mode
-                prefs.edit().putInt(KEY_THEME_MODE, mode).apply()
-            },
-        )
     }
 }
 
@@ -149,8 +98,10 @@ private fun AlarmApp(
     viewModel: AlarmViewModel = viewModel(),
     themeMode: Int = 0,
     onThemeModeChange: (Int) -> Unit = {},
+    dynamicColor: Boolean = false,
+    onDynamicColorChange: (Boolean) -> Unit = {},
 ) {
-    // 导航状态：列表(null) / 新建(-1) / 编辑(>0)；设置页；菜单
+    // 导航状态：列表(null) / 新建(-1) / 编辑(>0)；设置页
     val editingTaskId = remember { MutableStateFlow<Long?>(null) }
     val editing by editingTaskId.collectAsState()
     val allTasks by viewModel.tasks.collectAsState()
@@ -158,7 +109,6 @@ private fun AlarmApp(
     val napTasks = allTasks.filter { it.data.task.isNap }
 
     var showSettings by remember { mutableStateOf(false) }
-    var menuOpen by remember { mutableStateOf(false) }
     var showNapDialog by remember { mutableStateOf(false) }
     var alarmListScrolling by remember { mutableStateOf(false) }
     var napListScrolling by remember { mutableStateOf(false) }
@@ -191,6 +141,8 @@ private fun AlarmApp(
         SettingsScreen(
             themeMode = themeMode,
             onThemeModeChange = onThemeModeChange,
+            dynamicColor = dynamicColor,
+            onDynamicColorChange = onDynamicColorChange,
             onBack = { showSettings = false },
             onClearAll = viewModel::clearAllAlarms,
             onExportJson = viewModel::exportAlarmsJson,
@@ -214,17 +166,8 @@ private fun AlarmApp(
             TopAppBar(
                 title = { Text("多时闹钟") },
                 actions = {
-                    IconButton(onClick = { menuOpen = true }) {
-                        Icon(Icons.Default.MoreVert, contentDescription = "菜单")
-                    }
-                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                        DropdownMenuItem(
-                            text = { Text("设置") },
-                            onClick = {
-                                menuOpen = false
-                                showSettings = true
-                            },
-                        )
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Filled.Settings, contentDescription = "设置")
                     }
                 },
             )
@@ -246,20 +189,20 @@ private fun AlarmApp(
         },
     ) { padding ->
         Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            TabRow(
-                selectedTabIndex = pagerState.currentPage,
-                containerColor = MaterialTheme.colorScheme.surface,
-                indicator = { tabPositions ->
-                    CapsuleIndicator(tabPositions, pagerState.currentPage)
-                },
+            // 分类切换：居中胶囊分段，选中填充品牌蓝；左右滑动仍可切页
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp, bottom = 10.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                listOf("闹钟", "小憩").forEachIndexed { index, label ->
-                    Tab(
-                        selected = pagerState.currentPage == index,
-                        onClick = { scope.launch { pagerState.animateScrollToPage(index) } },
-                        text = { Text(label) },
-                    )
-                }
+                CategorySwitcher(
+                    labels = listOf("闹钟", "小憩"),
+                    selectedIndex = pagerState.currentPage,
+                    onSelect = { index ->
+                        scope.launch { pagerState.animateScrollToPage(index) }
+                    },
+                )
             }
             HorizontalPager(
                 state = pagerState,
@@ -272,6 +215,7 @@ private fun AlarmApp(
                         onToggleTask = viewModel::setTaskEnabled,
                         onDeleteTask = viewModel::deleteTask,
                         onEditTask = { editingTaskId.value = it },
+                        onCreate = { editingTaskId.value = NEW_TASK_ID },
                     )
                 } else {
                     NapListPage(
@@ -280,6 +224,7 @@ private fun AlarmApp(
                         onDeleteTask = viewModel::deleteTask,
                         onEditTask = { editingTaskId.value = it },
                         onToggleTask = viewModel::setTaskEnabled,
+                        onCreate = { showNapDialog = true },
                     )
                 }
             }
@@ -293,28 +238,6 @@ private fun AlarmApp(
                 viewModel.createNapTask(minutes)
             },
             onDismiss = { showNapDialog = false },
-        )
-    }
-}
-
-/** 胶囊形 Tab 指示器：选中项底部的圆角短条，颜色随主题 */
-@Composable
-private fun CapsuleIndicator(
-    tabPositions: List<TabPosition>,
-    selectedIndex: Int,
-) {
-    Box(
-        modifier = Modifier
-            .tabIndicatorOffset(tabPositions[selectedIndex])
-            .wrapContentSize(Alignment.BottomCenter)
-            .padding(bottom = 2.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .width(32.dp)
-                .height(4.dp)
-                .clip(RoundedCornerShape(percent = 50))
-                .background(MaterialTheme.colorScheme.primary),
         )
     }
 }
@@ -334,6 +257,9 @@ private fun ScrollingFab(
         onClick = { if (!hidden) onClick() },
         modifier = Modifier.alpha(alpha),
         shape = CircleShape,
+        // 两种主题下都用实心品牌蓝，不用随主题变浅的 colorScheme.primary
+        containerColor = BrandBlue,
+        contentColor = Color.White,
     ) {
         Icon(Icons.Default.Add, contentDescription = contentDescription)
     }

@@ -11,30 +11,23 @@ import android.util.Log
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AlarmOn
 import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.filled.BatterySaver
+import androidx.compose.material.icons.filled.ColorLens
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.Info
@@ -43,15 +36,13 @@ import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -62,33 +53,29 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.core.content.IntentCompat
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.IntentCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.example.multitimealarm.ui.components.SettingDivider
+import com.example.multitimealarm.ui.components.SettingItem
+import com.example.multitimealarm.ui.components.SettingSection
+import com.example.multitimealarm.ui.components.SettingTint
+import com.example.multitimealarm.ui.theme.THEME_DARK
+import com.example.multitimealarm.ui.theme.THEME_LIGHT
+import com.example.multitimealarm.ui.theme.THEME_SYSTEM
+import com.example.multitimealarm.ui.theme.ThemeStore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
-import java.net.URL
-
-/** 主题模式：0=跟随系统，1=浅色，2=暗色 */
-const val THEME_SYSTEM = 0
-const val THEME_LIGHT = 1
-const val THEME_DARK = 2
 
 private const val REPO_PAGE = "https://github.com/sundys/MultiTimeAlarm"
-private const val RELEASES_PAGE = "https://github.com/sundys/MultiTimeAlarm/releases"
 
 fun themeLabel(mode: Int): String = when (mode) {
     THEME_LIGHT -> "浅色"
@@ -107,145 +94,13 @@ private fun openAppDetails(context: Context) {
     }
 }
 
-// ============ 设置项图标配色：中等明度的强调色，浅色/暗色主题下均可读 ============
-private val IconViolet = Color(0xFF8B5CF6)
-private val IconOrange = Color(0xFFF0871F)
-private val IconPink = Color(0xFFEC4899)
-private val IconIndigo = Color(0xFF6366F1)
-private val IconTeal = Color(0xFF14B8A6)
-private val IconAmber = Color(0xFFD9A200)
-private val IconGreen = Color(0xFF22A06B)
-private val IconBlue = Color(0xFF3B82F6)
-private val IconGrey = Color(0xFF7C8798)
-
-/** 分类小标题 */
-@Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 4.dp, top = 20.dp, bottom = 8.dp),
-        fontSize = 13.sp,
-        fontWeight = FontWeight.Bold,
-        color = MaterialTheme.colorScheme.primary,
-    )
-}
-
-/** 分类卡片：小标题 + 圆角容器，内部放若干设置项 */
-@Composable
-private fun SettingSection(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit,
-) {
-    SectionHeader(title)
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)),
-    ) {
-        Column(content = content)
-    }
-}
-
-/** 图标底衬：圆角色块 + 居中图标 */
-@Composable
-private fun SettingIcon(icon: ImageVector, tint: Color) {
-    Box(
-        modifier = Modifier
-            .size(40.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(tint.copy(alpha = 0.15f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(21.dp),
-        )
-    }
-}
-
-/** 卡片内分隔线：左侧留出图标宽度，与文字对齐 */
-@Composable
-private fun SettingDivider() {
-    HorizontalDivider(
-        modifier = Modifier.padding(start = 70.dp),
-        thickness = 0.6.dp,
-        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-    )
-}
-
-/**
- * 通用设置项：左侧图标，中间标题 + 说明，右侧当前值 + 箭头
- */
-@Composable
-private fun SettingItem(
-    icon: ImageVector,
-    iconTint: Color,
-    title: String,
-    subtitle: String? = null,
-    value: String? = null,
-    valueColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    titleColor: Color = Color.Unspecified,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(start = 16.dp, end = 12.dp, top = 13.dp, bottom = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        SettingIcon(icon, iconTint)
-        Spacer(Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = title,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Medium,
-                color = titleColor,
-            )
-            subtitle?.let {
-                Text(
-                    text = it,
-                    fontSize = 12.sp,
-                    lineHeight = 17.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 3.dp),
-                )
-            }
-        }
-        value?.let {
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = it,
-                fontSize = 13.sp,
-                color = valueColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.widthIn(max = 104.dp),
-            )
-        }
-        Spacer(Modifier.width(4.dp))
-        Icon(
-            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-            modifier = Modifier.size(20.dp),
-        )
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     themeMode: Int,
     onThemeModeChange: (Int) -> Unit,
+    dynamicColor: Boolean,
+    onDynamicColorChange: (Boolean) -> Unit,
     onBack: () -> Unit,
     onClearAll: ((Int) -> Unit) -> Unit,
     onExportJson: suspend () -> String,
@@ -324,8 +179,11 @@ fun SettingsScreen(
     }
 
     val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
     var batteryIgnoring by remember { mutableStateOf(false) }
     var fullScreenAllowed by remember { mutableStateOf(true) }
+    // Android 12 起精确闹钟许可可能被用户关闭（更新应用时系统也会重新校验），需要展示给用户
+    var exactAlarmAllowed by remember { mutableStateOf(true) }
 
     // 每次回到此页面时刷新授权状态（含从系统设置返回）
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -334,6 +192,9 @@ fun SettingsScreen(
             if (event == Lifecycle.Event.ON_RESUME) {
                 batteryIgnoring = powerManager.isIgnoringBatteryOptimizations(context.packageName)
                 ringtoneName = com.example.multitimealarm.util.RingtoneStore.displayName(context)
+                if (Build.VERSION.SDK_INT >= 31) {
+                    exactAlarmAllowed = alarmManager.canScheduleExactAlarms()
+                }
                 if (Build.VERSION.SDK_INT >= 34) {
                     fullScreenAllowed = context.getSystemService(NotificationManager::class.java)
                         .canUseFullScreenIntent()
@@ -387,16 +248,33 @@ fun SettingsScreen(
             SettingSection("通用") {
                 SettingItem(
                     icon = Icons.Filled.Palette,
-                    iconTint = IconViolet,
+                    iconTint = SettingTint.Violet,
                     title = "主题颜色",
                     subtitle = "浅色 / 暗色 / 跟随系统",
                     value = themeLabel(themeMode),
                     onClick = { showThemeDialog = true },
                 )
+                // 跟随壁纸取色：Android 12+ 才有系统取色接口
+                if (ThemeStore.dynamicColorSupported) {
+                    SettingDivider()
+                    SettingItem(
+                        icon = Icons.Filled.ColorLens,
+                        iconTint = SettingTint.Blue,
+                        title = "跟随壁纸取色",
+                        subtitle = "使用壁纸主色调生成界面配色，需 Android 12 及以上",
+                        trailing = {
+                            Switch(
+                                checked = dynamicColor,
+                                onCheckedChange = onDynamicColorChange,
+                            )
+                        },
+                        onClick = { onDynamicColorChange(!dynamicColor) },
+                    )
+                }
                 SettingDivider()
                 SettingItem(
                     icon = Icons.Filled.MusicNote,
-                    iconTint = IconOrange,
+                    iconTint = SettingTint.Orange,
                     title = "铃声设置",
                     subtitle = "闹钟到点响铃时播放的声音",
                     value = ringtoneName,
@@ -418,14 +296,41 @@ fun SettingsScreen(
 
             // ============ 权限 ============
             SettingSection("权限") {
+                // Android 12+ 精确闹钟可能被系统或用户关闭（应用更新后系统还会重新校验），
+                // 关掉之后闹钟只能走非精确通道、可能延迟数分钟
+                if (Build.VERSION.SDK_INT >= 31) {
+                    SettingItem(
+                        icon = Icons.Filled.AlarmOn,
+                        iconTint = SettingTint.Orange,
+                        title = "精确闹钟",
+                        subtitle = if (exactAlarmAllowed) "已授权，闹钟按设定时间精确触发"
+                        else "未授权，系统可能延迟几分钟才触发，点击前往授权",
+                        value = if (exactAlarmAllowed) "已允许" else "未允许",
+                        valueColor = if (exactAlarmAllowed) SettingTint.Green
+                        else MaterialTheme.colorScheme.error,
+                        onClick = {
+                            if (!exactAlarmAllowed) {
+                                runCatching {
+                                    context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                            Uri.parse("package:${context.packageName}"),
+                                        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    )
+                                }.onFailure { openAppDetails(context) }
+                            }
+                        },
+                    )
+                    SettingDivider()
+                }
                 if (Build.VERSION.SDK_INT >= 34) {
                     SettingItem(
                         icon = Icons.Filled.Fullscreen,
-                        iconTint = IconPink,
+                        iconTint = SettingTint.Pink,
                         title = "全屏弹窗权限",
                         subtitle = "点击前往授权，到点直接弹出全屏响铃页",
                         value = if (fullScreenAllowed) "已允许" else "未允许",
-                        valueColor = if (fullScreenAllowed) IconGreen else MaterialTheme.colorScheme.error,
+                        valueColor = if (fullScreenAllowed) SettingTint.Green else MaterialTheme.colorScheme.error,
                         onClick = {
                             runCatching {
                                 context.startActivity(
@@ -441,11 +346,11 @@ fun SettingsScreen(
                 }
                 SettingItem(
                     icon = Icons.Filled.Layers,
-                    iconTint = IconIndigo,
+                    iconTint = SettingTint.Indigo,
                     title = "后台弹窗权限",
                     subtitle = "国产系统在后台弹出响铃页需要此权限",
                     value = if (Settings.canDrawOverlays(context)) "已允许" else "未允许",
-                    valueColor = if (Settings.canDrawOverlays(context)) IconGreen
+                    valueColor = if (Settings.canDrawOverlays(context)) SettingTint.Green
                     else MaterialTheme.colorScheme.error,
                     onClick = {
                         if (!Settings.canDrawOverlays(context)) {
@@ -463,11 +368,11 @@ fun SettingsScreen(
                 SettingDivider()
                 SettingItem(
                     icon = Icons.Filled.BatterySaver,
-                    iconTint = IconTeal,
+                    iconTint = SettingTint.Teal,
                     title = "忽略电池优化",
                     subtitle = "防止省电策略在休眠时拦截闹钟提醒",
                     value = if (batteryIgnoring) "已忽略" else "未忽略",
-                    valueColor = if (batteryIgnoring) IconGreen else MaterialTheme.colorScheme.error,
+                    valueColor = if (batteryIgnoring) SettingTint.Green else MaterialTheme.colorScheme.error,
                     onClick = {
                         if (batteryIgnoring) {
                             runCatching {
@@ -491,7 +396,7 @@ fun SettingsScreen(
                 SettingDivider()
                 SettingItem(
                     icon = Icons.Filled.Autorenew,
-                    iconTint = IconAmber,
+                    iconTint = SettingTint.Amber,
                     title = "自启动设置",
                     subtitle = "小米/华为等系统需允许后台自启动，否则重启后闹钟可能丢失",
                     onClick = {
@@ -519,7 +424,7 @@ fun SettingsScreen(
             SettingSection("数据") {
                 SettingItem(
                     icon = Icons.Filled.Backup,
-                    iconTint = IconGreen,
+                    iconTint = SettingTint.Green,
                     title = "备份闹钟",
                     subtitle = "导出全部闹钟为备份文件",
                     onClick = {
@@ -532,7 +437,7 @@ fun SettingsScreen(
                 SettingDivider()
                 SettingItem(
                     icon = Icons.Filled.Restore,
-                    iconTint = IconBlue,
+                    iconTint = SettingTint.Blue,
                     title = "恢复闹钟",
                     subtitle = "从备份文件恢复，将覆盖当前全部闹钟",
                     onClick = {
@@ -556,7 +461,7 @@ fun SettingsScreen(
             SettingSection("关于") {
                 SettingItem(
                     icon = Icons.Filled.Info,
-                    iconTint = IconGrey,
+                    iconTint = SettingTint.Grey,
                     title = "关于多时闹钟",
                     subtitle = "版本信息、检查更新与开源地址",
                     value = "v$versionName",

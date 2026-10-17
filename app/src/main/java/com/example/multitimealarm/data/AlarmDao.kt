@@ -49,7 +49,13 @@ interface AlarmDao {
     @Query("UPDATE alarm_tasks SET enabled = :enabled WHERE id = :taskId")
     suspend fun setTaskEnabled(taskId: Long, enabled: Boolean)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    /**
+     * 插入时间点。与既有时间点 (taskId, 时, 分, 秒) 冲突时忽略。
+     *
+     * 这里刻意不用 REPLACE：REPLACE 会删旧行再插新行、拿到新 id，
+     * 而 id 就是系统闹钟的 PendingIntent requestCode，id 一变就留下一个无法取消的旧注册。
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertTime(time: AlarmTimeEntity): Long
 
     @Update
@@ -60,9 +66,6 @@ interface AlarmDao {
 
     @Query("DELETE FROM alarm_times WHERE id = :timeId")
     suspend fun deleteTimeById(timeId: Long)
-
-    @Query("DELETE FROM alarm_times WHERE taskId = :taskId AND id NOT IN (:keepIds)")
-    suspend fun deleteTimesNotIn(taskId: Long, keepIds: List<Long>)
 
     @Query("UPDATE alarm_times SET enabled = :enabled WHERE id = :timeId")
     suspend fun setTimeEnabled(timeId: Long, enabled: Boolean)

@@ -1,6 +1,7 @@
 package com.example.multitimealarm.ui.edit
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,23 +9,28 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -38,12 +44,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.multitimealarm.data.AlarmTaskEntity
 import com.example.multitimealarm.data.AlarmTimeEntity
 import com.example.multitimealarm.data.TaskType
+import com.example.multitimealarm.ui.components.SettingDivider
+import com.example.multitimealarm.ui.components.SettingSection
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -51,6 +58,23 @@ import java.time.format.DateTimeFormatter
 private data class TimeRow(val id: Long, val hour: Int, val minute: Int, val second: Int, val enabled: Boolean)
 
 private val WEEKDAY_LABELS = listOf("一", "二", "三", "四", "五", "六", "日")
+
+/** 提醒类型选项（顺序即展示顺序） */
+private val TYPE_OPTIONS = listOf(
+    TaskType.DAILY to "每天",
+    TaskType.WEEKLY to "按星期",
+    TaskType.MONTHLY to "每月",
+    TaskType.INTERVAL to "间隔循环",
+    TaskType.ONCE to "仅一次",
+)
+
+/** 时间点文本：秒为 0 时省略秒，与列表页显示习惯一致 */
+private fun formatTimeText(hour: Int, minute: Int, second: Int): String =
+    if (second == 0) {
+        String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
+    } else {
+        String.format(java.util.Locale.US, "%02d:%02d:%02d", hour, minute, second)
+    }
 
 /** 仅一次：所选日期的全部时间点是否都已过去（过去则保存即失效，不允许） */
 private fun isOnceFullyPast(dateEpochDay: Long, times: List<TimeRow>): Boolean {
@@ -119,359 +143,423 @@ fun AlarmEditScreen(
     var showTimePicker by remember { mutableStateOf(false) }
     var editingTimeIndex by remember { mutableStateOf<Int?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
+    // 校验失败信息统一走 Snackbar 提示，展示后即清空
     var errorText by remember { mutableStateOf<String?>(null) }
+    // 每月日期输入框的字段级错误态
+    var monthDaysError by remember { mutableStateOf(false) }
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(errorText) {
+        val message = errorText ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        errorText = null
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(if (taskId == null) "新建闹钟" else "编辑闹钟") },
                 navigationIcon = {
-                    TextButton(onClick = onBack) { Text("取消") }
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    }
                 },
             )
         },
+        bottomBar = {
+            // 保存常驻底部，长表单不需要滚到底
+            Surface(tonalElevation = 3.dp) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Button(
+                        onClick = {
+                            val snoozeMinutes = snoozeMinutesText.toIntOrNull()?.coerceIn(1, 999) ?: 5
+                            val snoozeMaxCount = snoozeMaxCountText.toIntOrNull()?.coerceIn(0, 99) ?: 3
+                            val intervalMinutes =
+                                (intervalHoursText.toIntOrNull() ?: 0) * 60L +
+                                    (intervalMinutesText.toIntOrNull() ?: 0).toLong()
+                            // 每月多日期：解析校验（全角已实时转换，此处再兜底转换）
+                            val monthDays = try {
+                                if (type == TaskType.MONTHLY)
+                                    com.example.multitimealarm.util.MonthDaysParser.parse(monthDaysText)
+                                else emptyList()
+                            } catch (e: com.example.multitimealarm.util.MonthDaysParser.InvalidMonthDaysException) {
+                                monthDaysError = true
+                                errorText = e.message
+                                return@Button
+                            }
+                            // 已过日期检查：当月内早于今天的日期视为无效
+                            if (type == TaskType.MONTHLY) {
+                                val today = java.time.LocalDate.now()
+                                val maxDay = java.time.YearMonth.now().lengthOfMonth()
+                                val past = monthDays.filter { it < today.dayOfMonth }
+                                val notInMonth = monthDays.filter { it > maxDay }
+                                if (past.isNotEmpty()) {
+                                    monthDaysError = true
+                                    errorText = "日期 ${past.joinToString(",")} 已过期（今天 ${today.dayOfMonth} 号），请重新输入"
+                                    return@Button
+                                }
+                                if (notInMonth.isNotEmpty()) {
+                                    monthDaysError = true
+                                    errorText = "本月只有 $maxDay 天，日期 ${notInMonth.joinToString(",")} 不存在，请重新输入"
+                                    return@Button
+                                }
+                            }
+                            val monthDay = monthDays.firstOrNull() ?: 0
+
+                            // 重复的时间点会导致同一分钟响两次（且续订时第二个会被判为已过而推到次日）
+                            val duplicate = times
+                                .groupBy { Triple(it.hour, it.minute, it.second) }
+                                .entries
+                                .firstOrNull { it.value.size > 1 }
+                                ?.key
+
+                            val validation = when {
+                                times.isEmpty() ->
+                                    if (type == TaskType.INTERVAL) "至少添加一个起始时间" else "至少添加一个提醒时间"
+                                duplicate != null ->
+                                    "提醒时间重复：${formatTimeText(duplicate.first, duplicate.second, duplicate.third)}" +
+                                        "，请删除多余的时间点"
+                                type == TaskType.WEEKLY && weekdaysMask == 0 -> "请至少选择一个星期"
+                                type == TaskType.MONTHLY && monthDay !in 1..31 -> "每月几号需在 1-31 之间"
+                                type == TaskType.INTERVAL && intervalMinutes <= 0 -> "间隔时间必须大于 0 分钟"
+                                type == TaskType.ONCE && dateEpochDay == null -> "请选择提醒日期"
+                                type == TaskType.ONCE && dateEpochDay?.let { isOnceFullyPast(it, times) } == true ->
+                                    "所选日期的时间点都已过去，请重新选择日期或时间"
+                                else -> null
+                            }
+                            if (validation != null) {
+                                errorText = validation
+                                return@Button
+                            }
+
+                            val task = AlarmTaskEntity(
+                                id = taskId ?: 0L,
+                                name = name.ifBlank { "定时提醒" },
+                                type = type,
+                                weekdaysMask = if (type == TaskType.WEEKLY) weekdaysMask else 0,
+                                monthDay = if (type == TaskType.MONTHLY) monthDay else 0,
+                                monthDays = if (type == TaskType.MONTHLY)
+                                    com.example.multitimealarm.util.MonthDaysParser.toStorageString(monthDays)
+                                else "",
+                                intervalMinutes = if (type == TaskType.INTERVAL) intervalMinutes else 0,
+                                dateEpochDay = if (type == TaskType.ONCE) dateEpochDay else null,
+                                enabled = taskEnabled,
+                                vibrate = vibrate,
+                                snoozeMinutes = snoozeMinutes,
+                                snoozeMaxCount = snoozeMaxCount,
+                                note = note,
+                                createdAt = if (createdAt != 0L) createdAt else System.currentTimeMillis(),
+                            )
+                            val timeEntities = times.map {
+                                AlarmTimeEntity(
+                                    id = it.id, taskId = task.id,
+                                    hour = it.hour, minute = it.minute, second = it.second,
+                                    enabled = it.enabled,
+                                )
+                            }
+                            // 编辑已关闭的闹钟时，若修改后的排期指向未来（任一时间点有未来的触发时刻），
+                            // 保存即自动重新启用，无需再到列表中手动打开
+                            val finalTask = if (!task.enabled) {
+                                val hasFuture = timeEntities.any { time ->
+                                    com.example.multitimealarm.util.TimeUtils
+                                        .nextTriggerAt(task.copy(enabled = true), time) != null
+                                }
+                                if (hasFuture) task.copy(enabled = true) else task
+                            } else task
+                            onSave(finalTask, timeEntities, removedIds.toList())
+                            onBack()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        enabled = isLoaded,
+                    ) {
+                        Text("保存", style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+            }
+        },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 16.dp),
         ) {
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("闹钟名称") },
-                placeholder = { Text("例如：吃药 / 开会 / 喝水") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-
-            // 提醒类型 + 振动（同一行，振动靠右）
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+            // ============ 提醒时间（视觉重心，放最上面） ============
+            SettingSection(
+                if (type == TaskType.INTERVAL) "起始时间（${times.size} 个）" else "提醒时间（${times.size} 个）"
             ) {
-                Text("提醒类型", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
-                Text("振动", fontSize = 14.sp)
-                Spacer(Modifier.width(8.dp))
-                Switch(checked = vibrate, onCheckedChange = { vibrate = it })
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = type == TaskType.DAILY,
-                    onClick = { type = TaskType.DAILY },
-                    label = { Text("每天") },
-                )
-                FilterChip(
-                    selected = type == TaskType.WEEKLY,
-                    onClick = { type = TaskType.WEEKLY },
-                    label = { Text("按星期") },
-                )
-                FilterChip(
-                    selected = type == TaskType.MONTHLY,
-                    onClick = { type = TaskType.MONTHLY },
-                    label = { Text("每月") },
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = type == TaskType.INTERVAL,
-                    onClick = { type = TaskType.INTERVAL },
-                    label = { Text("间隔循环") },
-                )
-                FilterChip(
-                    selected = type == TaskType.ONCE,
-                    onClick = {
-                        type = TaskType.ONCE
-                        if (dateEpochDay == null) showDatePicker = true
-                    },
-                    label = { Text("仅一次") },
-                )
-            }
-            Text(
-                text = when (type) {
-                    TaskType.DAILY -> "闹钟会在每天的下列时间点各提醒一次"
-                    TaskType.WEEKLY -> "闹钟会在所选星期的下列时间点各提醒一次"
-                    TaskType.MONTHLY -> "闹钟会在每月所选日期的下列时间点各提醒一次"
-                    TaskType.INTERVAL -> "从起始时间开始，每隔设定的间隔循环提醒一次（持续循环）"
-                    TaskType.ONCE -> "闹钟会在指定日期的下列时间点各提醒一次，全部提醒完后自动关闭"
-                },
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            // 按星期：星期选择 + 快捷预设
-            if (type == TaskType.WEEKLY) {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    WEEKDAY_LABELS.forEachIndexed { index, label ->
-                        val bit = 1 shl index
-                        FilterChip(
-                            selected = weekdaysMask and bit != 0,
-                            onClick = { weekdaysMask = weekdaysMask xor bit },
-                            label = { Text(label) },
+                if (times.isEmpty()) {
+                    Text(
+                        text = if (type == TaskType.INTERVAL) "还没有起始时间，点下方按钮添加" else "还没有提醒时间，点下方按钮添加",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+                    )
+                } else {
+                    times.forEachIndexed { index, row ->
+                        if (index > 0) SettingDivider()
+                        TimeRowItem(
+                            row = row,
+                            onPick = { editingTimeIndex = index },
+                            onToggle = { checked -> times[index] = row.copy(enabled = checked) },
+                            onDelete = {
+                                if (row.id != 0L) removedIds.add(row.id)
+                                times.removeAt(index)
+                            },
                         )
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(
-                        selected = weekdaysMask == AlarmTaskEntity.MASK_EVERY_DAY,
-                        onClick = { weekdaysMask = AlarmTaskEntity.MASK_EVERY_DAY },
-                        label = { Text("每天") },
-                    )
-                    FilterChip(
-                        selected = weekdaysMask == AlarmTaskEntity.MASK_WEEKDAYS,
-                        onClick = { weekdaysMask = AlarmTaskEntity.MASK_WEEKDAYS },
-                        label = { Text("工作日") },
-                    )
-                    FilterChip(
-                        selected = weekdaysMask == AlarmTaskEntity.MASK_WEEKEND,
-                        onClick = { weekdaysMask = AlarmTaskEntity.MASK_WEEKEND },
-                        label = { Text("周末") },
-                    )
+                SettingDivider()
+                Row(modifier = Modifier.padding(12.dp)) {
+                    FilledTonalButton(
+                        onClick = { showTimePicker = true },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(if (type == TaskType.INTERVAL) "添加起始时间" else "添加时间点")
+                    }
                 }
             }
 
-            // 每月多日期
-            if (type == TaskType.MONTHLY) {
-                OutlinedTextField(
-                    value = monthDaysText,
-                    onValueChange = { monthDaysText = com.example.multitimealarm.util.MonthDaysParser.normalize(it).take(200) },
-                    label = { Text("每月提醒日期") },
-                    placeholder = { Text("如：1,3,9,25 或 1-15 或 2,4,8,21-26") },
-                    supportingText = { Text("多日期用英文逗号分隔，支持范围如 1-15（中文逗号自动转换）") },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
+            // ============ 基本信息 ============
+            SettingSection("基本信息") {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    OutlinedTextField(
+                        value = name,
+                        onValueChange = { name = it },
+                        label = { Text("闹钟名称") },
+                        placeholder = { Text("例如：吃药 / 开会 / 喝水") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = { note = it },
+                        label = { Text("备注（可选）") },
+                        placeholder = { Text("例如：饭后服用") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                    )
+                }
+                SettingDivider()
+                SwitchRow(
+                    title = "启用闹钟",
+                    subtitle = if (taskEnabled) "到点正常提醒" else "已关闭，到点不会提醒",
+                    checked = taskEnabled,
+                    onCheckedChange = { taskEnabled = it },
                 )
             }
 
-            // 间隔循环：小时间隔 + 分钟间隔
-            if (type == TaskType.INTERVAL) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+            // ============ 提醒规则 ============
+            SettingSection("提醒规则") {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    OutlinedTextField(
-                        value = intervalHoursText,
-                        onValueChange = { intervalHoursText = it.filter(Char::isDigit).take(3) },
-                        label = { Text("每隔（小时）") },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = intervalMinutesText,
-                        onValueChange = { intervalMinutesText = it.filter(Char::isDigit).take(2) },
-                        label = { Text("再加（分钟）") },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                    )
-                }
-            }
-
-            // 仅一次：日期选择
-            if (type == TaskType.ONCE) {
-                Card(modifier = Modifier.fillMaxWidth(), onClick = { showDatePicker = true }) {
+                    // 类型选项单行横向滚动，避免折行造成的视觉断裂
                     Row(
-                        modifier = Modifier.padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("提醒日期", fontSize = 14.sp)
-                            Text(
-                                text = dateEpochDay
-                                    ?.let {
-                                        LocalDate.ofEpochDay(it)
-                                            .format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"))
-                                    }
-                                    ?: "点击选择日期",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (dateEpochDay == null) MaterialTheme.colorScheme.error
-                                else MaterialTheme.colorScheme.onSurface,
+                        TYPE_OPTIONS.forEach { (option, label) ->
+                            FilterChip(
+                                selected = type == option,
+                                onClick = {
+                                    type = option
+                                    if (option == TaskType.ONCE && dateEpochDay == null) showDatePicker = true
+                                },
+                                label = { Text(label) },
                             )
                         }
                     }
-                }
-            }
-
-            // 多时间点列表
-            Text(
-                text = if (type == TaskType.INTERVAL) "起始时间（${times.size} 个）" else "提醒时间（${times.size} 个）",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-            )
-            if (errorText != null) {
-                Text(errorText!!, fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
-            }
-            times.forEachIndexed { index, row ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
                     Text(
-                        text = if (row.second == 0) String.format(java.util.Locale.US, "%02d:%02d", row.hour, row.minute)
-                        else String.format(java.util.Locale.US, "%02d:%02d:%02d", row.hour, row.minute, row.second),
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { editingTimeIndex = index },
+                        text = when (type) {
+                            TaskType.DAILY -> "闹钟会在每天的下列时间点各提醒一次"
+                            TaskType.WEEKLY -> "闹钟会在所选星期的下列时间点各提醒一次"
+                            TaskType.MONTHLY -> "闹钟会在每月所选日期的下列时间点各提醒一次"
+                            TaskType.INTERVAL -> "从起始时间开始，每隔设定的间隔循环提醒一次（持续循环）"
+                            TaskType.ONCE -> "闹钟会在指定日期的下列时间点各提醒一次，全部提醒完后自动关闭"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Switch(
-                        checked = row.enabled,
-                        onCheckedChange = { checked -> times[index] = row.copy(enabled = checked) },
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    IconButton(onClick = {
-                        if (row.id != 0L) removedIds.add(row.id)
-                        times.removeAt(index)
-                    }) {
-                        Icon(Icons.Default.Delete, contentDescription = "删除该时间点")
+
+                    // 按星期：星期选择 + 快捷预设
+                    if (type == TaskType.WEEKLY) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            WEEKDAY_LABELS.forEachIndexed { index, label ->
+                                val bit = 1 shl index
+                                FilterChip(
+                                    selected = weekdaysMask and bit != 0,
+                                    onClick = { weekdaysMask = weekdaysMask xor bit },
+                                    label = { Text(label) },
+                                )
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
+                                selected = weekdaysMask == AlarmTaskEntity.MASK_EVERY_DAY,
+                                onClick = { weekdaysMask = AlarmTaskEntity.MASK_EVERY_DAY },
+                                label = { Text("每天") },
+                            )
+                            FilterChip(
+                                selected = weekdaysMask == AlarmTaskEntity.MASK_WEEKDAYS,
+                                onClick = { weekdaysMask = AlarmTaskEntity.MASK_WEEKDAYS },
+                                label = { Text("工作日") },
+                            )
+                            FilterChip(
+                                selected = weekdaysMask == AlarmTaskEntity.MASK_WEEKEND,
+                                onClick = { weekdaysMask = AlarmTaskEntity.MASK_WEEKEND },
+                                label = { Text("周末") },
+                            )
+                        }
                     }
-                }
-            }
-            Button(
-                onClick = { showTimePicker = true },
-                modifier = Modifier
-                    .fillMaxWidth(0.6f)
-                    .align(Alignment.CenterHorizontally),
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(Modifier.width(4.dp))
-                Text(if (type == TaskType.INTERVAL) "添加起始时间" else "添加时间点")
-            }
 
-            // 贪睡设置
-            Text("贪睡设置", fontSize = 14.sp, fontWeight = FontWeight.Medium)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                OutlinedTextField(
-                    value = snoozeMinutesText,
-                    onValueChange = { snoozeMinutesText = it.filter(Char::isDigit).take(3) },
-                    placeholder = { Text("间隔（分钟）", fontSize = 13.sp) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(56.dp),
-                    singleLine = true,
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
-                )
-                OutlinedTextField(
-                    value = snoozeMaxCountText,
-                    onValueChange = { snoozeMaxCountText = it.filter(Char::isDigit).take(2) },
-                    placeholder = { Text("次数上限（0=不限）", fontSize = 13.sp) },
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(56.dp),
-                    singleLine = true,
-                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 15.sp),
-                )
-            }
-
-            // 备注
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it },
-                label = { Text("备注（可选）") },
-                placeholder = { Text("例如：饭后服用") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
-
-            Spacer(Modifier.height(8.dp))
-            Button(
-                onClick = {
-                    val snoozeMinutes = snoozeMinutesText.toIntOrNull()?.coerceIn(1, 999) ?: 5
-                    val snoozeMaxCount = snoozeMaxCountText.toIntOrNull()?.coerceIn(0, 99) ?: 3
-                    val intervalMinutes =
-                        (intervalHoursText.toIntOrNull() ?: 0) * 60L + (intervalMinutesText.toIntOrNull() ?: 0).toLong()
-                    // 每月多日期：解析校验（全角已实时转换，此处再兜底转换）
-                    val monthDays = try {
-                        if (type == TaskType.MONTHLY)
-                            com.example.multitimealarm.util.MonthDaysParser.parse(monthDaysText)
-                        else emptyList()
-                    } catch (e: com.example.multitimealarm.util.MonthDaysParser.InvalidMonthDaysException) {
-                        errorText = e.message
-                        return@Button
-                    }
-                    // 已过日期检查：当月内早于今天的日期视为无效
+                    // 每月多日期
                     if (type == TaskType.MONTHLY) {
-                        val today = java.time.LocalDate.now()
-                        val maxDay = java.time.YearMonth.now().lengthOfMonth()
-                        val past = monthDays.filter { it < today.dayOfMonth }
-                        val notInMonth = monthDays.filter { it > maxDay }
-                        if (past.isNotEmpty()) {
-                            errorText = "日期 ${past.joinToString(",")} 已过期（今天 ${today.dayOfMonth} 号），请重新输入"
-                            return@Button
-                        }
-                        if (notInMonth.isNotEmpty()) {
-                            errorText = "本月只有 $maxDay 天，日期 ${notInMonth.joinToString(",")} 不存在，请重新输入"
-                            return@Button
-                        }
-                    }
-                    val monthDay = monthDays.firstOrNull() ?: 0
-
-                    errorText = when {
-                        times.isEmpty() ->
-                            if (type == TaskType.INTERVAL) "至少添加一个起始时间" else "至少添加一个提醒时间"
-                        type == TaskType.WEEKLY && weekdaysMask == 0 -> "请至少选择一个星期"
-                        type == TaskType.MONTHLY && monthDay !in 1..31 -> "每月几号需在 1-31 之间"
-                        type == TaskType.INTERVAL && intervalMinutes <= 0 -> "间隔时间必须大于 0 分钟"
-                        type == TaskType.ONCE && dateEpochDay == null -> "请选择提醒日期"
-                        type == TaskType.ONCE && dateEpochDay?.let { isOnceFullyPast(it, times) } == true ->
-                            "所选日期的时间点都已过去，请重新选择日期或时间"
-                        else -> null
-                    }
-                    if (errorText != null) return@Button
-
-                    val task = AlarmTaskEntity(
-                        id = taskId ?: 0L,
-                        name = name.ifBlank { "定时提醒" },
-                        type = type,
-                        weekdaysMask = if (type == TaskType.WEEKLY) weekdaysMask else 0,
-                        monthDay = if (type == TaskType.MONTHLY) monthDay else 0,
-                        monthDays = if (type == TaskType.MONTHLY)
-                            com.example.multitimealarm.util.MonthDaysParser.toStorageString(monthDays) else "",
-                        intervalMinutes = if (type == TaskType.INTERVAL) intervalMinutes else 0,
-                        dateEpochDay = if (type == TaskType.ONCE) dateEpochDay else null,
-                        enabled = taskEnabled,
-                        vibrate = vibrate,
-                        snoozeMinutes = snoozeMinutes,
-                        snoozeMaxCount = snoozeMaxCount,
-                        note = note,
-                        createdAt = if (createdAt != 0L) createdAt else System.currentTimeMillis(),
-                    )
-                    val timeEntities = times.map {
-                        AlarmTimeEntity(
-                            id = it.id, taskId = task.id,
-                            hour = it.hour, minute = it.minute, second = it.second,
-                            enabled = it.enabled,
+                        OutlinedTextField(
+                            value = monthDaysText,
+                            onValueChange = {
+                                monthDaysText = com.example.multitimealarm.util.MonthDaysParser
+                                    .normalize(it).take(200)
+                                monthDaysError = false
+                            },
+                            label = { Text("每月提醒日期") },
+                            placeholder = { Text("如：1,3,9,25 或 1-15 或 2,4,8,21-26") },
+                            supportingText = { Text("多日期用英文逗号分隔，支持范围如 1-15（中文逗号自动转换）") },
+                            isError = monthDaysError,
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
                         )
                     }
-                    // 编辑已关闭的闹钟时，若修改后的排期指向未来（任一时间点有未来的触发时刻），
-                    // 保存即自动重新启用，无需再到列表中手动打开
-                    val finalTask = if (!task.enabled) {
-                        val hasFuture = timeEntities.any { time ->
-                            com.example.multitimealarm.util.TimeUtils
-                                .nextTriggerAt(task.copy(enabled = true), time) != null
+
+                    // 间隔循环：小时间隔 + 分钟间隔
+                    if (type == TaskType.INTERVAL) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedTextField(
+                                value = intervalHoursText,
+                                onValueChange = { intervalHoursText = it.filter(Char::isDigit).take(3) },
+                                label = { Text("每隔") },
+                                suffix = { Text("小时") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                            )
+                            OutlinedTextField(
+                                value = intervalMinutesText,
+                                onValueChange = { intervalMinutesText = it.filter(Char::isDigit).take(2) },
+                                label = { Text("再加") },
+                                suffix = { Text("分钟") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                            )
                         }
-                        if (hasFuture) task.copy(enabled = true) else task
-                    } else task
-                    onSave(finalTask, timeEntities, removedIds.toList())
-                    onBack()
-                },
-                modifier = Modifier
-                    .fillMaxWidth(0.6f)
-                    .height(48.dp)
-                    .align(Alignment.CenterHorizontally),
-                enabled = isLoaded,
-            ) {
-                Text("保存", fontSize = 16.sp)
+                    }
+
+                    // 仅一次：日期选择
+                    if (type == TaskType.ONCE) {
+                        Surface(
+                            onClick = { showDatePicker = true },
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "提醒日期",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    Text(
+                                        text = dateEpochDay
+                                            ?.let {
+                                                LocalDate.ofEpochDay(it)
+                                                    .format(DateTimeFormatter.ofPattern("yyyy年MM月dd日"))
+                                            }
+                                            ?: "点击选择日期",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        color = if (dateEpochDay == null) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurface,
+                                        modifier = Modifier.padding(top = 2.dp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
             }
+
+            // ============ 提醒方式 ============
+            SettingSection("提醒方式") {
+                SwitchRow(
+                    title = "振动",
+                    subtitle = "响铃时同时振动提醒",
+                    checked = vibrate,
+                    onCheckedChange = { vibrate = it },
+                )
+                SettingDivider()
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text(
+                        text = "贪睡",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        OutlinedTextField(
+                            value = snoozeMinutesText,
+                            onValueChange = { snoozeMinutesText = it.filter(Char::isDigit).take(3) },
+                            label = { Text("间隔") },
+                            suffix = { Text("分钟") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                        )
+                        OutlinedTextField(
+                            value = snoozeMaxCountText,
+                            onValueChange = { snoozeMaxCountText = it.filter(Char::isDigit).take(2) },
+                            label = { Text("次数上限") },
+                            suffix = { Text("次") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                        )
+                    }
+                    // 提示放在行下方，避免只有一侧带 supportingText 造成两个输入框高度不齐
+                    Text(
+                        text = "次数上限填 0 表示不限次数",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -507,9 +595,9 @@ fun AlarmEditScreen(
                             modifier = Modifier.width(72.dp),
                             circular = true,
                         )
-                        Text("时", fontSize = 13.sp)
+                        Text("时", style = MaterialTheme.typography.bodySmall)
                     }
-                    Text(":", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text(":", style = MaterialTheme.typography.headlineSmall)
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         NumberPickerColumn(
                             value = pickedMinute, count = 60,
@@ -517,9 +605,9 @@ fun AlarmEditScreen(
                             modifier = Modifier.width(72.dp),
                             circular = true,
                         )
-                        Text("分", fontSize = 13.sp)
+                        Text("分", style = MaterialTheme.typography.bodySmall)
                     }
-                    Text(":", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    Text(":", style = MaterialTheme.typography.headlineSmall)
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         NumberPickerColumn(
                             value = pickedSecond, count = 60,
@@ -527,7 +615,7 @@ fun AlarmEditScreen(
                             modifier = Modifier.width(72.dp),
                             circular = true,
                         )
-                        Text("秒", fontSize = 13.sp)
+                        Text("秒", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             },
@@ -596,9 +684,9 @@ fun AlarmEditScreen(
                             label = { String.format(java.util.Locale.US, "%04d", yearBase + it) },
                             circular = true,
                         )
-                        Text("年", fontSize = 13.sp)
+                        Text("年", style = MaterialTheme.typography.bodySmall)
                     }
-                    Text("  ", fontSize = 20.sp)
+                    Spacer(Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         NumberPickerColumn(
                             value = pickedMonth - 1, count = 12,
@@ -607,9 +695,9 @@ fun AlarmEditScreen(
                             label = { String.format(java.util.Locale.US, "%02d", it + 1) },
                             circular = true,
                         )
-                        Text("月", fontSize = 13.sp)
+                        Text("月", style = MaterialTheme.typography.bodySmall)
                     }
-                    Text("  ", fontSize = 20.sp)
+                    Spacer(Modifier.width(8.dp))
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         NumberPickerColumn(
                             value = pickedDay - 1, count = monthLen,
@@ -618,7 +706,7 @@ fun AlarmEditScreen(
                             label = { String.format(java.util.Locale.US, "%02d", it + 1) },
                             circular = true,
                         )
-                        Text("日", fontSize = 13.sp)
+                        Text("日", style = MaterialTheme.typography.bodySmall)
                     }
                 }
             },
@@ -633,5 +721,69 @@ fun AlarmEditScreen(
                 TextButton(onClick = { showDatePicker = false }) { Text("取消") }
             },
         )
+    }
+}
+
+/** 时间点行：大号时间可点改，右侧开关与删除 */
+@Composable
+private fun TimeRowItem(
+    row: TimeRow,
+    onPick: () -> Unit,
+    onToggle: (Boolean) -> Unit,
+    onDelete: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onPick)
+            .padding(start = 16.dp, end = 6.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = formatTimeText(row.hour, row.minute, row.second),
+            style = MaterialTheme.typography.displaySmall,
+            color = if (row.enabled) MaterialTheme.colorScheme.onSurface
+            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Switch(checked = row.enabled, onCheckedChange = onToggle)
+        IconButton(onClick = onDelete) {
+            Icon(
+                imageVector = Icons.Default.Delete,
+                contentDescription = "删除该时间点",
+                tint = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+/** 卡片内的开关行：标题 + 说明 + 右侧开关 */
+@Composable
+private fun SwitchRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(text = title, style = MaterialTheme.typography.titleMedium)
+            Text(
+                text = subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }

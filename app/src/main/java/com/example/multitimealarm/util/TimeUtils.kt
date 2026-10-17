@@ -3,16 +3,29 @@ package com.example.multitimealarm.util
 import com.example.multitimealarm.data.AlarmTaskEntity
 import com.example.multitimealarm.data.AlarmTimeEntity
 import com.example.multitimealarm.data.TaskType
+import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.YearMonth
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
 
 object TimeUtils {
 
     /** 默认贪睡间隔（分钟），任务未自定义时使用 */
     const val SNOOZE_MINUTES = 5L
+
+    private val HHMM_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")
+    private val MONTH_DAY_FORMATTER: DateTimeFormatter = DateTimeFormatter.ofPattern("M月d日")
+
+    /** 下次响铃时刻的 HH:mm（24 小时制） */
+    fun formatHhmm(epochMillis: Long): String =
+        HHMM_FORMATTER.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneId.systemDefault()))
+
+    /** 下次响铃时刻的「M月d日」 */
+    fun formatMonthDay(epochMillis: Long): String =
+        MONTH_DAY_FORMATTER.format(LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMillis), ZoneId.systemDefault()))
 
     /**
      * 计算一个时间点的下一次触发时刻（毫秒）。已过期或不可触发时返回 null。
@@ -86,7 +99,8 @@ object TimeUtils {
             val upcoming = days
                 .filter { it in 1..maxDay }
                 .map { d ->
-                    LocalDate.of(year, month, d).atTime(time.hour, time.minute, 0)
+                    // 与其他类型一致，保留时间点的秒（此前固定为 0，导致每月闹钟设置到秒无效）
+                    LocalDate.of(year, month, d).atTime(time.hour, time.minute, time.second)
                         .atZone(zone).toInstant().toEpochMilli()
                 }
                 .filter { it > now }

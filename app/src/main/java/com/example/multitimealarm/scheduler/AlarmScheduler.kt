@@ -54,9 +54,20 @@ object AlarmScheduler {
         }
     }
 
-    /** 开机后/进程冷启动后全量重调度所有已启用任务（同进程内只执行一次，失败可重试） */
-    suspend fun rescheduleAll(context: Context) {
-        if (!fullRescheduleDone.compareAndSet(false, true)) return
+    /**
+     * 全量重调度所有已启用任务。
+     *
+     * - 进程冷启动（Application.onCreate）：同一进程内只跑一次，避免每次启动重复清算
+     * - 开机 / App 更新 / 时区或系统时间变更：必须[force]，因为系统在这些时刻会清空
+     *   本包已注册的闹钟（尤其是 App 更新后不清的话，用户不打开 App 就再也不会响），
+     *   而且时区/时间变更后必须按新的时区重新计算「每天的 8:00」。
+     */
+    suspend fun rescheduleAll(context: Context, force: Boolean = false) {
+        if (force) {
+            fullRescheduleDone.set(true)
+        } else if (!fullRescheduleDone.compareAndSet(false, true)) {
+            return
+        }
         try {
             val dao = AppDatabase.getInstance(context).alarmDao()
             for (task in dao.getEnabledTasks()) {

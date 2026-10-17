@@ -20,7 +20,11 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE,
         )
     ],
-    indices = [Index("taskId")],
+    indices = [
+        Index("taskId"),
+        // 同一任务内时间点唯一：UI 已做校验，这里在库层再兜一层，防止任何写入路径产生重复
+        Index(value = ["taskId", "hour", "minute", "second"], unique = true),
+    ],
 )
 data class AlarmTimeEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,

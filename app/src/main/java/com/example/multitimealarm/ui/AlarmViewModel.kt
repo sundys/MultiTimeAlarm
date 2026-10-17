@@ -1,10 +1,8 @@
 package com.example.multitimealarm.ui
 
 import android.app.Application
-import android.text.format.DateFormat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.multitimealarm.MultiTimeAlarmApp
 import com.example.multitimealarm.data.AlarmRepository
 import com.example.multitimealarm.data.AlarmTaskEntity
 import com.example.multitimealarm.data.AlarmTimeEntity
@@ -21,8 +19,15 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-/** 列表页 UI 模型：任务数据 + 预计算好的下次响铃时刻与文本（后台线程一次算好，渲染时直接用） */
-data class TaskListItem(val data: TaskWithTimes, val next: Long?, val nextText: String?)
+/** 列表页 UI 模型：任务数据 + 预计算好的下次响铃时刻与展示文本（后台线程一次算好，渲染时直接用） */
+data class TaskListItem(
+    val data: TaskWithTimes,
+    val next: Long?,
+    /** 下次响铃时间的 HH:mm，无下次触发时为 null */
+    val nextTimeText: String?,
+    /** 下次响铃日期的 M月d日，无下次触发时为 null */
+    val nextDateText: String?,
+)
 
 class AlarmViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -50,7 +55,12 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
                     val next = entry.times
                         .mapNotNull { time -> TimeUtils.nextTriggerAt(entry.task, time) }
                         .minOrNull()
-                    TaskListItem(entry, next, next?.let { formatNextText(it) })
+                    TaskListItem(
+                        data = entry,
+                        next = next,
+                        nextTimeText = next?.let { TimeUtils.formatHhmm(it) },
+                        nextDateText = next?.let { TimeUtils.formatMonthDay(it) },
+                    )
                 }.sortedWith(
                     compareBy<TaskListItem> { !it.data.task.enabled }
                         .thenBy { it.next ?: Long.MAX_VALUE }
@@ -75,10 +85,6 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
     fun setTaskEnabled(taskId: Long, enabled: Boolean) {
         pendingEnabled.update { it + (taskId to enabled) }
         viewModelScope.launch { repository.setTaskEnabled(taskId, enabled) }
-    }
-
-    fun setTimeEnabled(timeId: Long, enabled: Boolean) {
-        viewModelScope.launch { repository.setTimeEnabled(timeId, enabled) }
     }
 
     fun deleteTask(taskId: Long) {
@@ -127,11 +133,5 @@ class AlarmViewModel(application: Application) : AndroidViewModel(application) {
             )
             repository.createTask(task, listOf(time))
         }
-    }
-
-    private companion object {
-        /** 下一次响铃的展示格式：9月4日 13:41 */
-        fun formatNextText(triggerAt: Long): String =
-            DateFormat.format("M月d日 HH:mm", triggerAt).toString()
     }
 }

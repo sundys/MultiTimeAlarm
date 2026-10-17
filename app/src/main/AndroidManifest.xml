@@ -58,11 +58,15 @@
             android:name=".scheduler.AlarmReceiver"
             android:exported="false" />
 
+        <!-- 系统事件重调度：开机、App 更新（更新会清空本包全部闹钟）、时区与系统时间变更 -->
         <receiver
             android:name=".scheduler.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.intent.action.TIME_SET" />
             </intent-filter>
         </receiver>
 
