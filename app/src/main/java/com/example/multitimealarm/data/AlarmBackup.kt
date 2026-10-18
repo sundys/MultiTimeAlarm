@@ -39,7 +39,10 @@ object AlarmBackup {
             o.put("weekdaysMask", entry.task.weekdaysMask)
             o.put("monthDay", entry.task.monthDay)
             o.put("monthDays", entry.task.monthDays)
+            o.put("monthLastDay", entry.task.monthLastDay)
             o.put("intervalMinutes", entry.task.intervalMinutes)
+            o.put("intervalValue", entry.task.intervalValue)
+            o.put("intervalUnit", entry.task.intervalUnit.name)
             entry.task.dateEpochDay?.let { o.put("dateEpochDay", it) }
             o.put("enabled", entry.task.enabled)
             o.put("vibrate", entry.task.vibrate)
@@ -112,6 +115,15 @@ object AlarmBackup {
                 continue
             }
 
+            // 旧备份（v1/v2）没有间隔单位：按分钟折算成最合适的 分钟/小时/天
+            val legacyMinutes = o.optLong("intervalMinutes", 0)
+            val derivedInterval = deriveInterval(legacyMinutes)
+            val intervalValue =
+                if (o.has("intervalValue")) o.optLong("intervalValue", derivedInterval.first)
+                else derivedInterval.first
+            val intervalUnit = runCatching { IntervalUnit.valueOf(o.optString("intervalUnit")) }
+                .getOrDefault(derivedInterval.second)
+
             entries.add(
                 Entry(
                     task = AlarmTaskEntity(
@@ -122,7 +134,10 @@ object AlarmBackup {
                         weekdaysMask = o.optInt("weekdaysMask", 0),
                         monthDay = o.optInt("monthDay", 0),
                         monthDays = o.optString("monthDays", ""),
-                        intervalMinutes = o.optLong("intervalMinutes", 0),
+                        monthLastDay = o.optBoolean("monthLastDay", false),
+                        intervalMinutes = legacyMinutes,
+                        intervalValue = intervalValue,
+                        intervalUnit = intervalUnit,
                         dateEpochDay = if (o.has("dateEpochDay")) o.optLong("dateEpochDay") else null,
                         enabled = o.optBoolean("enabled", true),
                         vibrate = o.optBoolean("vibrate", true),
@@ -142,4 +157,11 @@ object AlarmBackup {
 
     private fun isValidTime(hour: Int, minute: Int, second: Int): Boolean =
         hour in 0..23 && minute in 0..59 && second in 0..59
+
+    /** 旧备份只存了分钟数：折算成最合适的单位 */
+    private fun deriveInterval(minutes: Long): Pair<Long, IntervalUnit> = when {
+        minutes > 0 && minutes % 1440 == 0L -> (minutes / 1440) to IntervalUnit.DAY
+        minutes > 0 && minutes % 60 == 0L -> (minutes / 60) to IntervalUnit.HOUR
+        else -> minutes to IntervalUnit.MINUTE
+    }
 }

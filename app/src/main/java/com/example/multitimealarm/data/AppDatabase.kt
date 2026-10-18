@@ -19,11 +19,18 @@ class Converters {
     @TypeConverter
     fun stringToTaskType(value: String): TaskType =
         runCatching { TaskType.valueOf(value) }.getOrDefault(TaskType.DAILY)
+
+    @TypeConverter
+    fun intervalUnitToString(unit: IntervalUnit): String = unit.name
+
+    @TypeConverter
+    fun stringToIntervalUnit(value: String): IntervalUnit =
+        runCatching { IntervalUnit.valueOf(value) }.getOrDefault(IntervalUnit.MINUTE)
 }
 
 @Database(
     entities = [AlarmTaskEntity::class, AlarmTimeEntity::class, AlarmHistoryEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 @TypeConverters(Converters::class)
@@ -117,6 +124,28 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** v8 -> v9：每月"最后一天"选项；间隔循环支持 分钟/小时/天/月 */
+        private val MIGRATION_8_9 = object : androidx.room.migration.Migration(8, 9) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `alarm_tasks` ADD COLUMN `monthLastDay` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `alarm_tasks` ADD COLUMN `intervalValue` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `alarm_tasks` ADD COLUMN `intervalUnit` TEXT NOT NULL DEFAULT 'MINUTE'")
+                // 旧数据只有 intervalMinutes：能整除天的按天、能整除小时的按小时，其余保持分钟
+                db.execSQL(
+                    "UPDATE `alarm_tasks` SET " +
+                        "`intervalUnit` = CASE " +
+                        "WHEN `intervalMinutes` > 0 AND `intervalMinutes` % 1440 = 0 THEN 'DAY' " +
+                        "WHEN `intervalMinutes` > 0 AND `intervalMinutes` % 60 = 0 THEN 'HOUR' " +
+                        "ELSE 'MINUTE' END, " +
+                        "`intervalValue` = CASE " +
+                        "WHEN `intervalMinutes` > 0 AND `intervalMinutes` % 1440 = 0 THEN `intervalMinutes` / 1440 " +
+                        "WHEN `intervalMinutes` > 0 AND `intervalMinutes` % 60 = 0 THEN `intervalMinutes` / 60 " +
+                        "ELSE `intervalMinutes` END " +
+                        "WHERE `type` = 'INTERVAL'"
+                )
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -132,6 +161,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_5_6,
                         MIGRATION_6_7,
                         MIGRATION_7_8,
+                        MIGRATION_8_9,
                     )
                     .build()
                     .also { instance = it }

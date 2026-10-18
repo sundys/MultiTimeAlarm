@@ -2,6 +2,7 @@ package com.example.multitimealarm
 
 import com.example.multitimealarm.data.AlarmTaskEntity
 import com.example.multitimealarm.data.AlarmTimeEntity
+import com.example.multitimealarm.data.IntervalUnit
 import com.example.multitimealarm.data.TaskType
 import com.example.multitimealarm.util.TimeUtils
 import org.junit.Assert.assertEquals
@@ -24,14 +25,20 @@ class TimeUtilsTest {
         weekdaysMask: Int = 0,
         monthDay: Int = 0,
         monthDays: String = "",
+        monthLastDay: Boolean = false,
         intervalMinutes: Long = 0,
+        intervalValue: Long = intervalMinutes,
+        intervalUnit: IntervalUnit = IntervalUnit.MINUTE,
         dateEpochDay: Long? = null,
         enabled: Boolean = true,
+        createdAt: Long = at(2026, 8, 29, 8, 0),
     ) = AlarmTaskEntity(
         id = 1, name = "t", type = type,
         weekdaysMask = weekdaysMask, monthDay = monthDay, monthDays = monthDays,
-        intervalMinutes = intervalMinutes, dateEpochDay = dateEpochDay,
-        enabled = enabled,
+        monthLastDay = monthLastDay,
+        intervalMinutes = intervalMinutes, intervalValue = intervalValue, intervalUnit = intervalUnit,
+        dateEpochDay = dateEpochDay,
+        enabled = enabled, createdAt = createdAt,
     )
 
     private fun time(hour: Int, minute: Int, enabled: Boolean = true) =
@@ -274,5 +281,57 @@ class TimeUtilsTest {
         assertNotNull(trigger)
         // 秒必须保留，而不是被截断到整分
         assertEquals(30_000L, trigger!! % 60_000L)
+    }
+
+    @Test
+    fun `interval in days crosses month boundary`() {
+        val t = task(
+            TaskType.INTERVAL, intervalValue = 2, intervalUnit = IntervalUnit.DAY,
+            createdAt = at(2026, 8, 29, 8, 0),
+        )
+        assertEquals(
+            at(2026, 8, 31, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 8, 29, 9, 0)),
+        )
+        assertEquals(
+            at(2026, 9, 2, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 8, 31, 9, 0)),
+        )
+    }
+
+    @Test
+    fun `interval in months uses real calendar months without drift`() {
+        val t = task(
+            TaskType.INTERVAL, intervalValue = 1, intervalUnit = IntervalUnit.MONTH,
+            createdAt = at(2026, 1, 31, 8, 0),
+        )
+        // 1 月 31 日 + 1 个月 = 2 月 28 日（2026 非闰年）
+        assertEquals(
+            at(2026, 2, 28, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 2, 1, 0, 0)),
+        )
+        // 每次都从锚点重算，2 月之后应回到 3 月 31 日，而不是漂移成 28 日
+        assertEquals(
+            at(2026, 3, 31, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 2, 28, 9, 0)),
+        )
+    }
+
+    @Test
+    fun `monthly last day follows actual month length`() {
+        val t = task(TaskType.MONTHLY, monthLastDay = true)
+        assertEquals(
+            at(2026, 2, 28, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 2, 1, 0, 0)),
+        )
+        assertEquals(
+            at(2026, 3, 31, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2026, 2, 28, 9, 0)),
+        )
+        // 闰年 2 月为 29 日
+        assertEquals(
+            at(2028, 2, 29, 8, 0),
+            TimeUtils.nextTriggerAt(t, time(8, 0), now = at(2028, 2, 1, 0, 0)),
+        )
     }
 }

@@ -6,6 +6,9 @@ import androidx.room.PrimaryKey
 /** 任务类型：每日 / 按星期 / 每月 / 间隔循环 / 仅一次 */
 enum class TaskType { DAILY, WEEKLY, MONTHLY, INTERVAL, ONCE }
 
+/** 间隔循环的单位；天/月按日历计算（月份天数不固定） */
+enum class IntervalUnit { MINUTE, HOUR, DAY, MONTH }
+
 /**
  * 定时任务。一个任务可包含多个提醒时间点（见 [AlarmTimeEntity]）。
  *
@@ -27,7 +30,17 @@ data class AlarmTaskEntity(
     val monthDay: Int = 0,
     /** 每月多日期（逗号分隔升序，如 "1,3,9,25" 或 "2,4,21,22,23,24,25,26"）；为空时回退 monthDay 单日 */
     val monthDays: String = "",
+    /** 每月类型：勾选后按"每月最后一天"触发，忽略 [monthDays] */
+    val monthLastDay: Boolean = false,
+    /**
+     * 旧的间隔分钟数，仅为兼容旧数据与旧备份保留；实际调度使用
+     * [intervalValue] + [intervalUnit]（月/天按日历计算）。
+     */
     val intervalMinutes: Long = 0,
+    /** 间隔数值，配合 [intervalUnit] 使用 */
+    val intervalValue: Long = 0,
+    /** 间隔单位：分钟 / 小时 / 天 / 月 */
+    val intervalUnit: IntervalUnit = IntervalUnit.MINUTE,
     val dateEpochDay: Long? = null,
     val enabled: Boolean = true,
     val vibrate: Boolean = true,

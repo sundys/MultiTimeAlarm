@@ -347,12 +347,13 @@ private fun typeText(item: TaskWithTimes): String = when (item.task.type) {
     }
     com.example.multitimealarm.data.TaskType.MONTHLY -> "每月"
     com.example.multitimealarm.data.TaskType.INTERVAL -> {
-        val total = item.task.intervalMinutes
-        when {
-            total >= 60L && total % 60L == 0L -> "每${total / 60}小时"
-            total < 60L -> "每${total}分钟"
-            else -> "每${total / 60}时${total % 60}分"
+        val unitLabel = when (item.task.intervalUnit) {
+            com.example.multitimealarm.data.IntervalUnit.MINUTE -> "分钟"
+            com.example.multitimealarm.data.IntervalUnit.HOUR -> "小时"
+            com.example.multitimealarm.data.IntervalUnit.DAY -> "天"
+            com.example.multitimealarm.data.IntervalUnit.MONTH -> "月"
         }
+        "每${item.task.intervalValue}$unitLabel"
     }
     com.example.multitimealarm.data.TaskType.ONCE -> "仅一次"
 }

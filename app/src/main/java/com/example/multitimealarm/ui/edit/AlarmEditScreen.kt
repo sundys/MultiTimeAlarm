@@ -3,7 +3,10 @@ package com.example.multitimealarm.ui.edit
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,12 +23,16 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -48,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.multitimealarm.data.AlarmTaskEntity
 import com.example.multitimealarm.data.AlarmTimeEntity
+import com.example.multitimealarm.data.IntervalUnit
 import com.example.multitimealarm.data.TaskType
 import com.example.multitimealarm.ui.components.SettingDivider
 import com.example.multitimealarm.ui.components.SettingSection
@@ -68,6 +76,13 @@ private val TYPE_OPTIONS = listOf(
     TaskType.ONCE to "仅一次",
 )
 
+private fun IntervalUnit.label(): String = when (this) {
+    IntervalUnit.MINUTE -> "分钟"
+    IntervalUnit.HOUR -> "小时"
+    IntervalUnit.DAY -> "天"
+    IntervalUnit.MONTH -> "月"
+}
+
 /** 时间点文本：秒为 0 时省略秒，与列表页显示习惯一致 */
 private fun formatTimeText(hour: Int, minute: Int, second: Int): String =
     if (second == 0) {
@@ -87,7 +102,7 @@ private fun isOnceFullyPast(dateEpochDay: Long, times: List<TimeRow>): Boolean {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AlarmEditScreen(
     taskId: Long?,
@@ -99,8 +114,10 @@ fun AlarmEditScreen(
     var type by remember { mutableStateOf(TaskType.DAILY) }
     var weekdaysMask by remember { mutableStateOf(AlarmTaskEntity.MASK_EVERY_DAY) }
     var monthDaysText by remember { mutableStateOf("1") }
-    var intervalHoursText by remember { mutableStateOf("2") }
-    var intervalMinutesText by remember { mutableStateOf("0") }
+    var monthLastDay by remember { mutableStateOf(false) }
+    var intervalValueText by remember { mutableStateOf("2") }
+    var intervalUnit by remember { mutableStateOf(IntervalUnit.HOUR) }
+    var showIntervalUnitMenu by remember { mutableStateOf(false) }
     var dateEpochDay by remember { mutableStateOf<Long?>(null) }
     var vibrate by remember { mutableStateOf(true) }
     var createdAt by remember { mutableStateOf(0L) }
@@ -118,13 +135,22 @@ fun AlarmEditScreen(
                 name = loaded.task.name
                 type = loaded.task.type
                 weekdaysMask = loaded.task.weekdaysMask
-                monthDaysText = com.example.multitimealarm.util.MonthDaysParser
-                    .toStorageString(
-                        com.example.multitimealarm.util.TimeUtils.effectiveMonthlyDays(loaded.task)
-                    )
-                    .ifEmpty { "1" }
-                intervalHoursText = (loaded.task.intervalMinutes / 60).toString()
-                intervalMinutesText = (loaded.task.intervalMinutes % 60).toString()
+                monthLastDay = loaded.task.monthLastDay
+                monthDaysText = if (loaded.task.monthLastDay) {
+                    ""
+                } else {
+                    com.example.multitimealarm.util.MonthDaysParser
+                        .toStorageString(
+                            com.example.multitimealarm.util.TimeUtils.effectiveMonthlyDays(loaded.task)
+                        )
+                        .ifEmpty { "1" }
+                }
+                intervalUnit = loaded.task.intervalUnit
+                intervalValueText = when {
+                    loaded.task.intervalValue > 0 -> loaded.task.intervalValue.toString()
+                    loaded.task.intervalMinutes > 0 -> loaded.task.intervalMinutes.toString()
+                    else -> "2"
+                }
                 dateEpochDay = loaded.task.dateEpochDay
                 vibrate = loaded.task.vibrate
                 createdAt = loaded.task.createdAt
@@ -177,12 +203,17 @@ fun AlarmEditScreen(
                         onClick = {
                             val snoozeMinutes = snoozeMinutesText.toIntOrNull()?.coerceIn(1, 999) ?: 5
                             val snoozeMaxCount = snoozeMaxCountText.toIntOrNull()?.coerceIn(0, 99) ?: 3
-                            val intervalMinutes =
-                                (intervalHoursText.toIntOrNull() ?: 0) * 60L +
-                                    (intervalMinutesText.toIntOrNull() ?: 0).toLong()
-                            // 每月多日期：解析校验（全角已实时转换，此处再兜底转换）
+                            val intervalValue = intervalValueText.toLongOrNull() ?: 0L
+                            // 旧字段仅用于兼容旧备份/旧版本：天、月按近似值折算，实际调度用 intervalValue + intervalUnit
+                            val intervalMinutes = when (intervalUnit) {
+                                IntervalUnit.MINUTE -> intervalValue
+                                IntervalUnit.HOUR -> intervalValue * 60L
+                                IntervalUnit.DAY -> intervalValue * 24L * 60L
+                                IntervalUnit.MONTH -> intervalValue * 30L * 24L * 60L
+                            }
+                            // 每月多日期：解析校验（全角已实时转换，此处再兜底转换）；勾选"最后一天"时跳过
                             val monthDays = try {
-                                if (type == TaskType.MONTHLY)
+                                if (type == TaskType.MONTHLY && !monthLastDay)
                                     com.example.multitimealarm.util.MonthDaysParser.parse(monthDaysText)
                                 else emptyList()
                             } catch (e: com.example.multitimealarm.util.MonthDaysParser.InvalidMonthDaysException) {
@@ -190,8 +221,8 @@ fun AlarmEditScreen(
                                 errorText = e.message
                                 return@Button
                             }
-                            // 已过日期检查：当月内早于今天的日期视为无效
-                            if (type == TaskType.MONTHLY) {
+                            // 已过日期检查：当月内早于今天的日期视为无效（仅自定义日期时需要）
+                            if (type == TaskType.MONTHLY && !monthLastDay) {
                                 val today = java.time.LocalDate.now()
                                 val maxDay = java.time.YearMonth.now().lengthOfMonth()
                                 val past = monthDays.filter { it < today.dayOfMonth }
@@ -223,8 +254,9 @@ fun AlarmEditScreen(
                                     "提醒时间重复：${formatTimeText(duplicate.first, duplicate.second, duplicate.third)}" +
                                         "，请删除多余的时间点"
                                 type == TaskType.WEEKLY && weekdaysMask == 0 -> "请至少选择一个星期"
-                                type == TaskType.MONTHLY && monthDay !in 1..31 -> "每月几号需在 1-31 之间"
-                                type == TaskType.INTERVAL && intervalMinutes <= 0 -> "间隔时间必须大于 0 分钟"
+                                type == TaskType.MONTHLY && !monthLastDay && monthDay !in 1..31 ->
+                                    "每月几号需在 1-31 之间"
+                                type == TaskType.INTERVAL && intervalValue <= 0 -> "间隔数值必须大于 0"
                                 type == TaskType.ONCE && dateEpochDay == null -> "请选择提醒日期"
                                 type == TaskType.ONCE && dateEpochDay?.let { isOnceFullyPast(it, times) } == true ->
                                     "所选日期的时间点都已过去，请重新选择日期或时间"
@@ -241,10 +273,13 @@ fun AlarmEditScreen(
                                 type = type,
                                 weekdaysMask = if (type == TaskType.WEEKLY) weekdaysMask else 0,
                                 monthDay = if (type == TaskType.MONTHLY) monthDay else 0,
-                                monthDays = if (type == TaskType.MONTHLY)
+                                monthDays = if (type == TaskType.MONTHLY && !monthLastDay)
                                     com.example.multitimealarm.util.MonthDaysParser.toStorageString(monthDays)
                                 else "",
+                                monthLastDay = type == TaskType.MONTHLY && monthLastDay,
                                 intervalMinutes = if (type == TaskType.INTERVAL) intervalMinutes else 0,
+                                intervalValue = if (type == TaskType.INTERVAL) intervalValue else 0,
+                                intervalUnit = if (type == TaskType.INTERVAL) intervalUnit else IntervalUnit.MINUTE,
                                 dateEpochDay = if (type == TaskType.ONCE) dateEpochDay else null,
                                 // 启用状态不在这里选：保存时按"是否存在未来触发时刻"自动决定
                                 enabled = true,
@@ -390,7 +425,12 @@ fun AlarmEditScreen(
 
                     // 按星期：星期选择 + 快捷预设
                     if (type == TaskType.WEEKLY) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        // 7 个按钮在窄屏/大字号下放不进一行，用 FlowRow 自动换行，保证"六、日"也能显示
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
                             WEEKDAY_LABELS.forEachIndexed { index, label ->
                                 val bit = 1 shl index
                                 FilterChip(
@@ -419,25 +459,55 @@ fun AlarmEditScreen(
                         }
                     }
 
-                    // 每月多日期
+                    // 每月：自定义日期 + 「最后一天」勾选
                     if (type == TaskType.MONTHLY) {
-                        OutlinedTextField(
-                            value = monthDaysText,
-                            onValueChange = {
-                                monthDaysText = com.example.multitimealarm.util.MonthDaysParser
-                                    .normalize(it).take(200)
-                                monthDaysError = false
-                            },
-                            label = { Text("每月提醒日期") },
-                            placeholder = { Text("如：1,3,9,25 或 1-15 或 2,4,8,21-26") },
-                            supportingText = { Text("多日期用英文逗号分隔，支持范围如 1-15（中文逗号自动转换）") },
-                            isError = monthDaysError,
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            OutlinedTextField(
+                                value = monthDaysText,
+                                onValueChange = {
+                                    monthDaysText = com.example.multitimealarm.util.MonthDaysParser
+                                        .normalize(it).take(200)
+                                    monthDaysError = false
+                                },
+                                // 勾选"最后一天"后自定义输入不可用，并已清空内容
+                                enabled = !monthLastDay,
+                                label = { Text("每月日期") },
+                                placeholder = { Text("如 1,3,9,25") },
+                                isError = monthDaysError,
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("最后一天", style = MaterialTheme.typography.bodyMedium)
+                            Checkbox(
+                                checked = monthLastDay,
+                                onCheckedChange = { checked ->
+                                    monthLastDay = checked
+                                    if (checked) {
+                                        monthDaysText = ""
+                                        monthDaysError = false
+                                    }
+                                },
+                            )
+                        }
+                        Text(
+                            text = if (monthLastDay) {
+                                // 每月按实际天数取月末（2 月 28/29、4 月 30、大月 31）
+                                val lastDay = java.time.YearMonth.now().lengthOfMonth()
+                                "按每月最后一天提醒（本月为 $lastDay 号），与上方自定义日期互斥"
+                            } else {
+                                "多日期用英文逗号分隔，支持范围如 1-15（中文逗号自动转换）"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
                         )
                     }
 
-                    // 间隔循环：小时间隔 + 分钟间隔
+                    // 间隔循环：数值 + 单位（分钟 / 小时 / 天 / 月）
                     if (type == TaskType.INTERVAL) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -445,22 +515,41 @@ fun AlarmEditScreen(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             OutlinedTextField(
-                                value = intervalHoursText,
-                                onValueChange = { intervalHoursText = it.filter(Char::isDigit).take(3) },
+                                value = intervalValueText,
+                                onValueChange = { intervalValueText = it.filter(Char::isDigit).take(3) },
                                 label = { Text("每隔") },
-                                suffix = { Text("小时") },
                                 modifier = Modifier.weight(1f),
                                 singleLine = true,
                             )
-                            OutlinedTextField(
-                                value = intervalMinutesText,
-                                onValueChange = { intervalMinutesText = it.filter(Char::isDigit).take(2) },
-                                label = { Text("再加") },
-                                suffix = { Text("分钟") },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                            )
+                            // 点击单位弹出小窗选择；默认小时
+                            Box {
+                                OutlinedButton(onClick = { showIntervalUnitMenu = true }) {
+                                    Text(intervalUnit.label() + " ▾")
+                                }
+                                DropdownMenu(
+                                    expanded = showIntervalUnitMenu,
+                                    onDismissRequest = { showIntervalUnitMenu = false },
+                                ) {
+                                    IntervalUnit.entries.forEach { unit ->
+                                        DropdownMenuItem(
+                                            text = { Text(unit.label()) },
+                                            onClick = {
+                                                intervalUnit = unit
+                                                showIntervalUnitMenu = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
                         }
+                        Text(
+                            text = "从起始时间起每隔 " +
+                                "${intervalValueText.ifBlank { "?" }} ${intervalUnit.label()}提醒一次；" +
+                                "天按自然日、月按实际日历月份计算",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp),
+                        )
                     }
 
                     // 仅一次：日期选择

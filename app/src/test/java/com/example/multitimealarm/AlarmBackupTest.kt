@@ -3,6 +3,7 @@ package com.example.multitimealarm
 import com.example.multitimealarm.data.AlarmBackup
 import com.example.multitimealarm.data.AlarmTaskEntity
 import com.example.multitimealarm.data.AlarmTimeEntity
+import com.example.multitimealarm.data.IntervalUnit
 import com.example.multitimealarm.data.TaskType
 import com.example.multitimealarm.data.TaskWithTimes
 import org.json.JSONException
@@ -20,7 +21,10 @@ class AlarmBackupTest {
         type: TaskType = TaskType.DAILY,
         weekdaysMask: Int = 0,
         monthDays: String = "",
+        monthLastDay: Boolean = false,
         intervalMinutes: Long = 0,
+        intervalValue: Long = intervalMinutes,
+        intervalUnit: IntervalUnit = IntervalUnit.MINUTE,
         dateEpochDay: Long? = null,
         enabled: Boolean = true,
         isNap: Boolean = false,
@@ -30,7 +34,9 @@ class AlarmBackupTest {
         createdAt: Long = 1_700_000_000_000L,
     ) = AlarmTaskEntity(
         id = 1, name = name, type = type, weekdaysMask = weekdaysMask, monthDays = monthDays,
-        intervalMinutes = intervalMinutes, dateEpochDay = dateEpochDay, enabled = enabled,
+        monthLastDay = monthLastDay,
+        intervalMinutes = intervalMinutes, intervalValue = intervalValue, intervalUnit = intervalUnit,
+        dateEpochDay = dateEpochDay, enabled = enabled,
         isNap = isNap, note = note, snoozeMinutes = snoozeMinutes, snoozeMaxCount = snoozeMaxCount,
         createdAt = createdAt,
     )
@@ -40,14 +46,18 @@ class AlarmBackupTest {
         val source = listOf(
             TaskWithTimes(task("吃药提醒", note = "饭后服用"), listOf(time(8, 0), time(12, 30, 15))),
             TaskWithTimes(
-                task("月供", type = TaskType.MONTHLY, monthDays = "1,15", enabled = false),
+                task("月供", type = TaskType.MONTHLY, monthLastDay = true, enabled = false),
+                listOf(time(9, 0)),
+            ),
+            TaskWithTimes(
+                task("喝水", type = TaskType.INTERVAL, intervalValue = 3, intervalUnit = IntervalUnit.HOUR),
                 listOf(time(9, 0)),
             ),
             TaskWithTimes(task("小憩 10 分钟", type = TaskType.ONCE, isNap = true, dateEpochDay = 20_600L), listOf(time(0, 5))),
         )
 
         val decoded = AlarmBackup.decode(AlarmBackup.encode(source))
-        assertEquals(3, decoded.count)
+        assertEquals(4, decoded.count)
 
         val first = decoded.entries[0]
         assertEquals("吃药提醒", first.task.name)
@@ -59,12 +69,30 @@ class AlarmBackupTest {
 
         val monthly = decoded.entries[1]
         assertEquals(TaskType.MONTHLY, monthly.task.type)
-        assertEquals("1,15", monthly.task.monthDays)
+        assertEquals(true, monthly.task.monthLastDay)
         assertEquals(false, monthly.task.enabled)
 
-        val nap = decoded.entries[2]
+        val interval = decoded.entries[2]
+        assertEquals(3L, interval.task.intervalValue)
+        assertEquals(IntervalUnit.HOUR, interval.task.intervalUnit)
+
+        val nap = decoded.entries[3]
         assertTrue(nap.task.isNap)
         assertEquals(20_600L, nap.task.dateEpochDay)
+    }
+
+    @Test
+    fun `legacy backup derives interval unit from minutes`() {
+        fun decodeInterval(minutes: Long): Pair<Long, IntervalUnit> {
+            val json = """{"tasks":[{"name":"x","type":"INTERVAL","intervalMinutes":$minutes,
+                "times":[{"hour":8,"minute":0}]}]}""".trimIndent()
+            val task = AlarmBackup.decode(json).entries[0].task
+            return task.intervalValue to task.intervalUnit
+        }
+        // 120 分钟 = 2 小时；2880 分钟 = 2 天；7 分钟保持分钟
+        assertEquals(2L to IntervalUnit.HOUR, decodeInterval(120))
+        assertEquals(2L to IntervalUnit.DAY, decodeInterval(2880))
+        assertEquals(7L to IntervalUnit.MINUTE, decodeInterval(7))
     }
 
     @Test

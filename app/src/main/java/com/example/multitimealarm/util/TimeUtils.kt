@@ -2,6 +2,7 @@ package com.example.multitimealarm.util
 
 import com.example.multitimealarm.data.AlarmTaskEntity
 import com.example.multitimealarm.data.AlarmTimeEntity
+import com.example.multitimealarm.data.IntervalUnit
 import com.example.multitimealarm.data.TaskType
 import java.time.Instant
 import java.time.LocalDate
@@ -9,6 +10,7 @@ import java.time.LocalDateTime
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.time.temporal.ChronoUnit
 import java.util.Calendar
 
 object TimeUtils {
@@ -46,7 +48,7 @@ object TimeUtils {
             TaskType.DAILY -> nextDaily(now, time)
             TaskType.WEEKLY -> nextWeekly(now, task.weekdaysMask, time)
             TaskType.MONTHLY -> nextMonthly(now, task, time)
-            TaskType.INTERVAL -> nextInterval(now, task.intervalMinutes, time)
+            TaskType.INTERVAL -> nextInterval(now, task, time)
             TaskType.ONCE -> nextOnce(now, task.dateEpochDay, time)
         }
     }
@@ -87,8 +89,8 @@ object TimeUtils {
     }
 
     private fun nextMonthly(now: Long, task: AlarmTaskEntity, time: AlarmTimeEntity): Long? {
-        val days = effectiveMonthlyDays(task)
-        if (days.isEmpty()) return null
+        val explicitDays = effectiveMonthlyDays(task)
+        if (!task.monthLastDay && explicitDays.isEmpty()) return null
         val zone = ZoneId.systemDefault()
         val start = LocalDateTime.ofInstant(java.time.Instant.ofEpochMilli(now), zone)
         var year = start.year
@@ -96,6 +98,8 @@ object TimeUtils {
         repeat(48) { // 最多向后看 4 年
             // 当月全部候选时刻中，取晚于 now 的最早一个；当月已全部过期则看下月
             val maxDay = YearMonth.of(year, month).lengthOfMonth()
+            // 勾选"最后一天"时按每月实际天数取月末，否则用用户输入的日期（超出的日期自动跳过）
+            val days = if (task.monthLastDay) listOf(maxDay) else explicitDays
             val upcoming = days
                 .filter { it in 1..maxDay }
                 .map { d ->
@@ -120,13 +124,45 @@ object TimeUtils {
         return if (days.isNotEmpty()) days else listOf(task.monthDay).filter { it in 1..31 }
     }
 
-    private fun nextInterval(now: Long, intervalMinutes: Long, time: AlarmTimeEntity): Long? {
-        if (intervalMinutes <= 0) return null
-        val step = intervalMinutes * 60_000L
-        val anchor = calendarAt(now, time).timeInMillis
-        if (anchor > now) return anchor
-        // 取模一步跳过已过去的整周期，避免锚点久远时循环累加
-        return anchor + ((now - anchor) / step + 1) * step
+    /**
+     * 间隔循环的下一次触发。
+     *
+     * 以任务创建日为锚点，按所选的 分钟/小时/天/月 做**日历运算**：
+     * - 天：加自然日，跨夏令时保持当地整点不变
+     * - 月：`plusMonths` 按真实月份计算（1 月 31 日 + 1 月 = 2 月 28/29 日），
+     *   每次都从锚点重新加，不会出现"2 月 28 日之后一直按 28 日"的漂移
+     */
+    private fun nextInterval(now: Long, task: AlarmTaskEntity, time: AlarmTimeEntity): Long? {
+        val value = task.intervalValue
+        if (value <= 0) return null
+        val zone = ZoneId.systemDefault()
+        val anchorDate = Instant.ofEpochMilli(task.createdAt).atZone(zone).toLocalDate()
+        val anchor = anchorDate.atTime(time.hour, time.minute, time.second).atZone(zone)
+        val anchorMillis = anchor.toInstant().toEpochMilli()
+        if (anchorMillis > now) return anchorMillis
+
+        val unit = task.intervalUnit
+        val chrono = when (unit) {
+            IntervalUnit.MINUTE -> ChronoUnit.MINUTES
+            IntervalUnit.HOUR -> ChronoUnit.HOURS
+            IntervalUnit.DAY -> ChronoUnit.DAYS
+            IntervalUnit.MONTH -> ChronoUnit.MONTHS
+        }
+        val nowZoned = Instant.ofEpochMilli(now).atZone(zone)
+        // 先估算周期数，再少量校正，避免锚点久远时逐周期累加
+        var k = when (unit) {
+            IntervalUnit.MINUTE -> ChronoUnit.MINUTES.between(anchor, nowZoned) / value
+            IntervalUnit.HOUR -> ChronoUnit.HOURS.between(anchor, nowZoned) / value
+            IntervalUnit.DAY -> ChronoUnit.DAYS.between(anchorDate, nowZoned.toLocalDate()) / value
+            IntervalUnit.MONTH -> ChronoUnit.MONTHS.between(anchorDate, nowZoned.toLocalDate()) / value
+        }
+        if (k < 0) k = 0
+        var candidate = anchor.plus(k * value, chrono)
+        while (candidate.toInstant().toEpochMilli() <= now) {
+            k += 1
+            candidate = anchor.plus(k * value, chrono)
+        }
+        return candidate.toInstant().toEpochMilli()
     }
 
     private fun nextOnce(now: Long, dateEpochDay: Long?, time: AlarmTimeEntity): Long? {
