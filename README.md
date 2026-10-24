@@ -62,4 +62,4 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ---
 
-社区：[linux.do](https://linux.do)
+欢迎加入 Linux.do 社区 交流反馈：[linux.do](https://linux.do)
