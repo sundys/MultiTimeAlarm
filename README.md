@@ -1,6 +1,8 @@
 # 多时闹钟（MultiTimeAlarm）
 
-最新版本：**v1.2.9** ｜ 许可证：[AGPL-3.0](LICENSE) ｜ 开发文档：[docs/开发文档.md](docs/开发文档.md)
+[![Release](https://img.shields.io/github/v/release/sundys/MultiTimeAlarm?label=%E6%9C%80%E6%96%B0%E7%89%88%E6%9C%AC)](https://github.com/sundys/MultiTimeAlarm/releases)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
+[![开发文档](https://img.shields.io/badge/%E5%BC%80%E5%8F%91%E6%96%87%E6%A1%A3-docs-green.svg)](docs/开发文档.md)
 
 一款 Android 闹钟应用，核心特色是**一个定时任务可设置多个提醒时间**，专为需要"按日程多点提醒"的场景设计（服药、打卡、会议前多次提醒等）。
 
@@ -23,10 +25,6 @@
 - 贪睡可配置：间隔（分钟）与次数上限（0 = 不限）
 - 重启后开机广播自动恢复全部闹钟；进程被杀有冷启动兜底重调度
 - 设置页提供"忽略电池优化"与"自启动设置"入口，适配 MIUI/EMUI 等国产 ROM
-
-## 开发文档
-
-技术栈、项目结构、界面说明、本地构建、自动编译发布与 APK 签名等开发者内容，已迁移至 **[docs/开发文档.md](docs/开发文档.md)**。
 
 ## 首次使用授权说明
 
