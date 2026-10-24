@@ -58,6 +58,6 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 - 协议全文在线版：<https://www.gnu.org/licenses/agpl-3.0.html>
 - 分发修改版或通过网络向用户提供本软件服务时，须按 AGPL-3.0 第 13 条向使用者提供对应的完整源代码
 
----
+## 社区支持
 
 欢迎加入 Linux.do 社区 交流反馈：[linux.do](https://linux.do)
