@@ -120,3 +120,29 @@ export SIGNING_KEY_PASSWORD=你的key密码
 - **通知权限**（Android 13+）：首次启动自动发起授权请求
 - 调度不需要"闹钟和提醒"特殊权限，安装即可用
 - 建议在 设置 → 忽略电池优化 中授权，并在自启动设置中允许本应用，避免国产 ROM 后台管控拦截闹钟
+
+## 开源许可
+
+本项目以 **GNU Affero 通用公共许可证第 3 版（AGPL-3.0）** 发布。
+
+```
+MultiTimeAlarm
+Copyright (C) 2026 sundys
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+```
+
+- 完整协议文本：[`LICENSE`](LICENSE)（与官方原文逐字一致，未经修改）
+- 协议全文在线版：<https://www.gnu.org/licenses/agpl-3.0.html>
+- 分发修改版或通过网络向用户提供本软件服务时，须按 AGPL-3.0 第 13 条向使用者提供对应的完整源代码
