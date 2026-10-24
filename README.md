@@ -1,5 +1,7 @@
 # 多时闹钟（MultiTimeAlarm）
 
+最新版本：**v1.2.9** ｜ 许可证：[AGPL-3.0](LICENSE) ｜ 开发文档：[docs/开发文档.md](docs/开发文档.md)
+
 一款 Android 闹钟应用，核心特色是**一个定时任务可设置多个提醒时间**，专为需要"按日程多点提醒"的场景设计（服药、打卡、会议前多次提醒等）。
 
 ## 功能特性
@@ -22,98 +24,9 @@
 - 重启后开机广播自动恢复全部闹钟；进程被杀有冷启动兜底重调度
 - 设置页提供"忽略电池优化"与"自启动设置"入口，适配 MIUI/EMUI 等国产 ROM
 
-### 界面
-- 闹钟 / 小憩用顶部居中的胶囊分段切换（也可左右滑动切页），选中项填充品牌蓝；列表卡片第一行为大号「下次响铃时间 + 名称」，第二行为日期/类型/时间点数，已停止的闹钟折叠成一组
-- 编辑页分区卡片：提醒时间置顶并用大字号展示，类型选项单行横向滚动，保存按钮常驻底部
-- 设置项左侧彩色图标、右侧当前值，权限是否已授权用颜色直接区分
-- 响铃历史：首页左上角入口，每次到点触发自动留痕（任务名、计划时间、实际响铃时间），可回看是否漏掉提醒
-- 主题配色以应用图标蓝为基调，支持跟随系统 / 浅色 / 暗色，Android 12+ 可跟随壁纸取色
-- 全屏边到边（edge-to-edge）布局，内容延伸到系统栏下；浮动圆形 + 按钮，列表滑动时自动隐藏、停下显示
+## 开发文档
 
-## 技术栈
-
-| 项 | 版本/说明 |
-|----|-----------|
-| 语言 | Kotlin 2.0.20 |
-| UI | Jetpack Compose（Material 3，BOM 2024.09.03） |
-| 数据库 | Room 2.6.1（KSP），平滑版本迁移 |
-| 调度 | AlarmManager `setAlarmClock` |
-| 构建 | Gradle 8.7 + AGP 8.5.2，JDK 17 |
-| 兼容 | minSdk 26（Android 8.0）～ targetSdk 34 |
-
-## 项目结构
-
-```
-app/src/main/java/com/example/multitimealarm/
-├── data/          # Room：AlarmTask(任务) + AlarmTime(时间点) 双表与迁移
-├── scheduler/     # 调度核心：AlarmScheduler / AlarmReceiver / BootReceiver
-├── notify/        # 高优先级全屏 Intent 通知
-├── ring/          # 响铃页（铃声、振动、贪睡）
-├── ui/
-│   ├── theme/     # 配色、字体、圆角与主题包装（品牌蓝 + 动态取色）
-│   ├── components/# 通用卡片与设置项组件
-│   ├── list/      # 闹钟 / 小憩 Tab 页
-│   ├── edit/      # 闹钟编辑页 + 时分秒数字选择器
-│   └── settings/  # 设置页（主题、电池优化）
-└── util/          # 下一次触发时间计算（含单元测试覆盖）
-```
-
-## 本地构建
-
-1. 克隆仓库：`git clone git@wapxw:sundys/MultiTimeAlarm.git`
-2. 用 Android Studio（Koala+，自带 JDK 17）打开工程根目录
-3. 在 `local.properties` 中配置 SDK 路径：`sdk.dir=<你的 Android SDK 路径>`（该文件不入库）
-4. Run ▶ 安装到设备；或命令行：`./gradlew assembleDebug`
-
-产物路径：`app/build/outputs/apk/debug/app-debug.apk`
-
-## 自动编译发布（部署摘要）
-
-项目使用 GitHub Actions 自动编译并发布 Release，流程如下：
-
-1. **触发**：推送 `v*` 格式的 tag（如 `v1.1.1`）即自动触发；也支持在 Actions 页面手动触发
-2. **编译**：Ubuntu 环境使用 Gradle Wrapper 执行 `assembleRelease`，按 ABI 拆分，仅产出正式签名包：
-   - `MultiTimeAlarm-<tag>-arm64-v8a.apk`（64 位，主流机型）
-   - `MultiTimeAlarm-<tag>-armeabi-v7a.apk`（32 位，老旧机型）
-   - 不再产出 debug 测试包与 universal 通用包
-3. **发布**：自动创建 GitHub Release，附件为上述 APK；**更新摘要自动取自 `CHANGELOG.md` 最顶部的一个小节**，方便区分每个版本改了什么
-
-发版操作：
-
-```bash
-# 1. 在 CHANGELOG.md 顶部添加新版本小节（## vX.Y.Z 开头）
-# 2. 提交并推送
-git add CHANGELOG.md && git commit -m "release: vX.Y.Z" && git push
-# 3. 打 tag 触发自动发布
-git tag vX.Y.Z && git push origin vX.Y.Z
-```
-
-## APK 签名（自动发布）
-
-release 签名通过**环境变量**注入，本地与 CI（GitHub Actions）通用，未配置时自动降级为不签名（产物文件名带 `-unsigned`）。
-
-| 环境变量 | 说明 |
-|----------|------|
-| `SIGNING_STORE_FILE` | keystore 文件路径（CI 中固定为 `keystore.jks`，相对路径以仓库根目录为基准，绝对路径原样支持） |
-| `SIGNING_STORE_PASSWORD` | keystore 密码 |
-| `SIGNING_KEY_ALIAS` | 签名 key 别名 |
-| `SIGNING_KEY_PASSWORD` | key 密码 |
-| `SIGNING_KEYSTORE_BASE64` | **仅 CI**：keystore 文件的 Base64 内容（存 GitHub Secrets） |
-
-**CI 配置**：仓库 Settings → Secrets and variables → Actions，添加以上 5 个 Secret。工作流会先把 `SIGNING_KEYSTORE_BASE64` 解码为 `keystore.jks`，再注入其余 4 个变量完成签名，产物为已签名的 `MultiTimeAlarm-<tag>-release.apk`。
-
-**本地签名**：生成/准备好 keystore 后导出前 4 个变量再编译即可：
-
-```bash
-export SIGNING_STORE_FILE=/path/to/keystore.jks
-export SIGNING_STORE_PASSWORD=你的keystore密码
-export SIGNING_KEY_ALIAS=你的key别名
-export SIGNING_KEY_PASSWORD=你的key密码
-./gradlew assembleRelease
-```
-
-生成新 keystore：`keytool -genkeypair -v -keystore keystore.jks -alias 别名 -keyalg RSA -validity 10000`
-生成 CI 用的 Base64：`base64 -w0 keystore.jks`（内容填入 `SIGNING_KEYSTORE_BASE64`）
+技术栈、项目结构、界面说明、本地构建、自动编译发布与 APK 签名等开发者内容，已迁移至 **[docs/开发文档.md](docs/开发文档.md)**。
 
 ## 首次使用授权说明
 
@@ -146,3 +59,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 - 完整协议文本：[`LICENSE`](LICENSE)（与官方原文逐字一致，未经修改）
 - 协议全文在线版：<https://www.gnu.org/licenses/agpl-3.0.html>
 - 分发修改版或通过网络向用户提供本软件服务时，须按 AGPL-3.0 第 13 条向使用者提供对应的完整源代码
+
+---
+
+社区：[linux.do](https://linux.do)
